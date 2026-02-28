@@ -134,8 +134,9 @@ serve(async (req) => {
       );
     }
   } catch (error: any) {
+    console.error('[suspender-servicio]', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: "No se pudo completar la operación. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

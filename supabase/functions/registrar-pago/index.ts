@@ -131,8 +131,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
+    console.error('[registrar-pago]', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: "No se pudo procesar el pago. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
