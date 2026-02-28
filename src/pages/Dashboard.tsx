@@ -19,7 +19,7 @@ const cardVariant = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1; // 1-12
+  const currentMonth = new Date().getMonth() + 1;
 
   const { data: clientes } = useQuery({
     queryKey: ["clientes"],
@@ -41,20 +41,23 @@ export default function Dashboard() {
 
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
 
-  // ONLY consider months up to current month for debt calculations
-  const mesesHastaActual = meses?.filter((m) => m.mes <= currentMonth) ?? [];
+  // Only months up to current, active service, with debt
+  const mesesHastaActual = meses?.filter((m) => m.mes <= currentMonth && (m as any).estado_servicio !== "suspendido") ?? [];
   const totalCobrado = mesesHastaActual.reduce((s, m) => s + Number(m.total_pagado), 0);
   const totalDeuda = mesesHastaActual
     .filter((m) => Number(m.saldo_pendiente) > 0)
     .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
 
-  // Clients with debt (only months up to current)
   const clienteIdsConDeuda = new Set(
     mesesHastaActual.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
   );
   const clientesConDeuda = clientes?.filter((c) => clienteIdsConDeuda.has(c.id)) ?? [];
 
-  // Monthly chart data (all months for the chart)
+  // Check which clients have any suspended month
+  const clienteIdsSuspendidos = new Set(
+    meses?.filter((m) => (m as any).estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
+  );
+
   const monthlyData = MONTHS.map((name, i) => {
     const mesNum = i + 1;
     const mesesMes = meses?.filter((m) => m.mes === mesNum) ?? [];
@@ -65,7 +68,6 @@ export default function Dashboard() {
     };
   });
 
-  // Pie chart data - cobrado vs deuda (only up to current month)
   const pieData = [
     { name: "Cobrado", value: totalCobrado },
     { name: "Pendiente", value: totalDeuda },
@@ -88,7 +90,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {kpis.map((kpi, i) => (
           <motion.div key={kpi.label} custom={i} initial="hidden" animate="visible" variants={cardVariant}>
@@ -105,7 +106,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -148,7 +148,6 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Debtors list */}
       {clientesConDeuda.length > 0 && (
         <Card>
           <CardHeader>
@@ -160,6 +159,7 @@ export default function Dashboard() {
                 const deuda = mesesHastaActual
                   .filter((m) => m.cliente_id === c.id && Number(m.saldo_pendiente) > 0)
                   .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+                const isSuspendido = clienteIdsSuspendidos.has(c.id);
                 return (
                   <div
                     key={c.id}
@@ -169,6 +169,9 @@ export default function Dashboard() {
                     <div>
                       <span className="font-medium">{c.nombre} {c.apellido}</span>
                       <span className="text-xs text-muted-foreground ml-2">DNI: {c.dni}</span>
+                      {isSuspendido && (
+                        <Badge variant="secondary" className="ml-2 text-[10px] bg-muted-foreground/20">⏸ Suspendido</Badge>
+                      )}
                     </div>
                     <Badge variant="destructive">${deuda.toLocaleString()}</Badge>
                   </div>

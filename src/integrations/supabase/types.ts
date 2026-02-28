@@ -23,7 +23,11 @@ export type Database = {
           estado: string
           id: string
           nombre: string
+          nombre_dueno: string | null
+          nombre_propiedad: string | null
+          nombre_regante: string | null
           telefono: string | null
+          titular_riego: string | null
           updated_at: string
         }
         Insert: {
@@ -34,7 +38,11 @@ export type Database = {
           estado?: string
           id?: string
           nombre: string
+          nombre_dueno?: string | null
+          nombre_propiedad?: string | null
+          nombre_regante?: string | null
           telefono?: string | null
+          titular_riego?: string | null
           updated_at?: string
         }
         Update: {
@@ -45,7 +53,11 @@ export type Database = {
           estado?: string
           id?: string
           nombre?: string
+          nombre_dueno?: string | null
+          nombre_propiedad?: string | null
+          nombre_regante?: string | null
           telefono?: string | null
+          titular_riego?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -103,6 +115,7 @@ export type Database = {
           cliente_id: string
           configuracion_id: string
           estado_mes: string
+          estado_servicio: string
           fecha_generacion: string
           id: string
           mes: number
@@ -115,6 +128,7 @@ export type Database = {
           cliente_id: string
           configuracion_id: string
           estado_mes?: string
+          estado_servicio?: string
           fecha_generacion?: string
           id?: string
           mes: number
@@ -127,6 +141,7 @@ export type Database = {
           cliente_id?: string
           configuracion_id?: string
           estado_mes?: string
+          estado_servicio?: string
           fecha_generacion?: string
           id?: string
           mes?: number
@@ -147,6 +162,41 @@ export type Database = {
             columns: ["configuracion_id"]
             isOneToOne: false
             referencedRelation: "configuracion_riego_cliente"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      observaciones_mes: {
+        Row: {
+          fecha_creacion: string
+          id: string
+          imagen_url: string | null
+          mes_servicio_id: string
+          texto: string | null
+          usuario_creador: string | null
+        }
+        Insert: {
+          fecha_creacion?: string
+          id?: string
+          imagen_url?: string | null
+          mes_servicio_id: string
+          texto?: string | null
+          usuario_creador?: string | null
+        }
+        Update: {
+          fecha_creacion?: string
+          id?: string
+          imagen_url?: string | null
+          mes_servicio_id?: string
+          texto?: string | null
+          usuario_creador?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "observaciones_mes_mes_servicio_id_fkey"
+            columns: ["mes_servicio_id"]
+            isOneToOne: false
+            referencedRelation: "meses_servicio"
             referencedColumns: ["id"]
           },
         ]
@@ -195,6 +245,50 @@ export type Database = {
           },
           {
             foreignKeyName: "pagos_mes_servicio_id_fkey"
+            columns: ["mes_servicio_id"]
+            isOneToOne: false
+            referencedRelation: "meses_servicio"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quincenas_servicio: {
+        Row: {
+          fecha_registro: string
+          id: string
+          mes_servicio_id: string
+          minutos_empadronada: number
+          minutos_precaria: number
+          numero_quincena: number
+          subtotal_calculado: number
+          valor_minuto_empadronada: number
+          valor_minuto_precaria: number
+        }
+        Insert: {
+          fecha_registro?: string
+          id?: string
+          mes_servicio_id: string
+          minutos_empadronada?: number
+          minutos_precaria?: number
+          numero_quincena: number
+          subtotal_calculado?: number
+          valor_minuto_empadronada?: number
+          valor_minuto_precaria?: number
+        }
+        Update: {
+          fecha_registro?: string
+          id?: string
+          mes_servicio_id?: string
+          minutos_empadronada?: number
+          minutos_precaria?: number
+          numero_quincena?: number
+          subtotal_calculado?: number
+          valor_minuto_empadronada?: number
+          valor_minuto_precaria?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quincenas_servicio_mes_servicio_id_fkey"
             columns: ["mes_servicio_id"]
             isOneToOne: false
             referencedRelation: "meses_servicio"

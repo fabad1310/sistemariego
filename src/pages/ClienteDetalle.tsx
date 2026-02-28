@@ -28,6 +28,10 @@ const editClienteSchema = z.object({
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   estado: z.enum(["activo", "inactivo"]),
+  titular_riego: z.string().optional(),
+  nombre_dueno: z.string().optional(),
+  nombre_propiedad: z.string().optional(),
+  nombre_regante: z.string().optional(),
 });
 type EditClienteForm = z.infer<typeof editClienteSchema>;
 
@@ -55,7 +59,7 @@ export default function ClienteDetalle() {
 
   const editClienteForm = useForm<EditClienteForm>({
     resolver: zodResolver(editClienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo", titular_riego: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
   });
 
   const { data: cliente } = useQuery({
@@ -90,10 +94,12 @@ export default function ClienteDetalle() {
 
   const currentConfig = configs?.find((c) => c.anio === selectedYear);
 
+  // Check if client has any suspended months
+  const hasSuspendedService = meses?.some((m) => (m as any).estado_servicio === "suspendido") ?? false;
+
   // Edit client mutation
   const editClienteMutation = useMutation({
     mutationFn: async (values: EditClienteForm) => {
-      // Check DNI uniqueness (exclude self)
       const { data: existing } = await supabase
         .from("clientes")
         .select("id")
@@ -109,7 +115,11 @@ export default function ClienteDetalle() {
         telefono: values.telefono || null,
         email: values.email || null,
         estado: values.estado,
-      }).eq("id", id!);
+        titular_riego: values.titular_riego || null,
+        nombre_dueno: values.nombre_dueno || null,
+        nombre_propiedad: values.nombre_propiedad || null,
+        nombre_regante: values.nombre_regante || null,
+      } as any).eq("id", id!);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -181,7 +191,6 @@ export default function ClienteDetalle() {
 
   const htCalc = Number(configForm.horas_discriminadas || 0) + Number(configForm.horas_no_discriminadas || 0);
 
-  // Populate edit client form when opening
   const handleOpenEditCliente = () => {
     if (cliente) {
       editClienteForm.reset({
@@ -191,12 +200,15 @@ export default function ClienteDetalle() {
         telefono: cliente.telefono || "",
         email: cliente.email || "",
         estado: cliente.estado as "activo" | "inactivo",
+        titular_riego: (cliente as any).titular_riego || "",
+        nombre_dueno: (cliente as any).nombre_dueno || "",
+        nombre_propiedad: (cliente as any).nombre_propiedad || "",
+        nombre_regante: (cliente as any).nombre_regante || "",
       });
     }
     setEditClienteOpen(true);
   };
 
-  // Populate edit config form when opening
   const handleOpenEditConfig = () => {
     if (currentConfig) {
       setEditConfigForm({
@@ -221,17 +233,25 @@ export default function ClienteDetalle() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">{cliente ? `${cliente.nombre} ${cliente.apellido}` : "..."}</h1>
-          <p className="text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{cliente ? `${cliente.nombre} ${cliente.apellido}` : "..."}</h1>
+            {hasSuspendedService && (
+              <Badge variant="secondary" className="bg-muted-foreground/20 text-sm">⏸ Servicio Suspendido</Badge>
+            )}
+          </div>
+          <div className="text-sm text-muted-foreground">
             {cliente && (
               <>
                 DNI: {cliente.dni}
                 <Badge variant={cliente.estado === "activo" ? "default" : "destructive"} className="ml-2 text-[10px]">
                   {cliente.estado === "activo" ? "🟢 Activo" : "🔴 Inactivo"}
                 </Badge>
+                {(cliente as any).nombre_propiedad && (
+                  <span className="ml-2">🏡 {(cliente as any).nombre_propiedad}</span>
+                )}
               </>
             )}
-          </p>
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={handleOpenEditCliente}>
           <Pencil className="h-4 w-4 mr-2" /> Editar Cliente
@@ -240,7 +260,7 @@ export default function ClienteDetalle() {
 
       {/* Edit Client Dialog */}
       <Dialog open={editClienteOpen} onOpenChange={setEditClienteOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>✏️ Editar Cliente</DialogTitle>
           </DialogHeader>
@@ -275,6 +295,20 @@ export default function ClienteDetalle() {
                   </Select>
                   <FormMessage />
                 </FormItem>
+              )} />
+              <hr />
+              <p className="text-sm font-medium text-muted-foreground">🌾 Datos de Riego</p>
+              <FormField control={editClienteForm.control} name="titular_riego" render={({ field }) => (
+                <FormItem><FormLabel>Titular de Riego</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="nombre_dueno" render={({ field }) => (
+                <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="nombre_propiedad" render={({ field }) => (
+                <FormItem><FormLabel>Nombre de Propiedad</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="nombre_regante" render={({ field }) => (
+                <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <Button type="submit" className="w-full" disabled={editClienteMutation.isPending}>
                 {editClienteMutation.isPending ? "Guardando..." : "Guardar Cambios"}
@@ -311,13 +345,13 @@ export default function ClienteDetalle() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Horas Discriminadas</Label><Input type="number" min="0" step="0.01" value={configForm.horas_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
-                  <div><Label>Horas No Discriminadas</Label><Input type="number" min="0" step="0.01" value={configForm.horas_no_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
+                  <div><Label>Horas Precaria</Label><Input type="number" min="0" step="0.01" value={configForm.horas_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
+                  <div><Label>Horas Empadronada</Label><Input type="number" min="0" step="0.01" value={configForm.horas_no_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
                 </div>
                 <div className="text-sm text-muted-foreground">Horas totales/mes: <strong>{htCalc}</strong></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Valor/Hora Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
-                  <div><Label>Valor/Hora No Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_no_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
+                  <div><Label>Valor/Hora Precaria ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
+                  <div><Label>Valor/Hora Empadronada ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_no_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
                 </div>
                 <div className="text-sm bg-muted p-3 rounded-lg">
                   💧 Total mensual estimado: <strong>${((Number(configForm.horas_discriminadas || 0) * Number(configForm.valor_hora_discriminada || 0)) + (Number(configForm.horas_no_discriminadas || 0) * Number(configForm.valor_hora_no_discriminada || 0))).toLocaleString()}</strong>
@@ -348,13 +382,13 @@ export default function ClienteDetalle() {
               ⚠️ Solo se recalcularán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Horas Discriminadas</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
-              <div><Label>Horas No Discriminadas</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_no_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
+              <div><Label>Horas Precaria</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
+              <div><Label>Horas Empadronada</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_no_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
             </div>
             <div className="text-sm text-muted-foreground">Horas totales/mes: <strong>{editHtCalc}</strong></div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Valor/Hora Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
-              <div><Label>Valor/Hora No Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_no_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
+              <div><Label>Valor/Hora Precaria ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
+              <div><Label>Valor/Hora Empadronada ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_no_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
             </div>
             <div className="text-sm bg-muted p-3 rounded-lg">
               💧 Nuevo total mensual estimado: <strong>${editTotalEstimado.toLocaleString()}</strong>
@@ -394,17 +428,28 @@ export default function ClienteDetalle() {
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {meses?.map((m, i) => {
           const pagado = m.estado_mes === "pagado";
+          const suspendido = (m as any).estado_servicio === "suspendido";
           return (
             <motion.div key={m.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
               <Card
-                className={`cursor-pointer hover:shadow-md transition-all border-2 ${pagado ? "border-success/40 bg-success/5" : "border-destructive/20 bg-destructive/5"}`}
+                className={`cursor-pointer hover:shadow-md transition-all border-2 ${
+                  suspendido
+                    ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
+                    : pagado
+                    ? "border-success/40 bg-success/5"
+                    : "border-destructive/20 bg-destructive/5"
+                }`}
                 onClick={() => navigate(`/clientes/${id}/mes/${m.id}`)}
               >
                 <CardContent className="p-3 text-center">
                   <p className="text-xs font-medium text-muted-foreground">{MONTH_NAMES[m.mes - 1]}</p>
-                  <p className="text-sm font-bold mt-1">{pagado ? "🟢" : "🔴"}</p>
+                  <p className="text-sm font-bold mt-1">
+                    {suspendido ? "⏸" : pagado ? "🟢" : "🔴"}
+                  </p>
                   <p className="text-xs mt-1">${Number(m.total_calculado).toLocaleString()}</p>
-                  <p className="text-[10px] text-muted-foreground">Pagado: ${Number(m.total_pagado).toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {suspendido ? "Suspendido" : `Pagado: $${Number(m.total_pagado).toLocaleString()}`}
+                  </p>
                 </CardContent>
               </Card>
             </motion.div>

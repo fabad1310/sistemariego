@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.actualizar-valores-globales]
 verify_jwt = false
+
+[functions.suspender-servicio]
+verify_jwt = false
+
+[functions.guardar-quincena]
+verify_jwt = false
