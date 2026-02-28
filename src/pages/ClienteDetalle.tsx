@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Settings, CalendarDays, Pencil, ChevronRight, ChevronLeft } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ArrowLeft, Settings, CalendarDays, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -35,6 +34,10 @@ const editClienteSchema = z.object({
 });
 type EditClienteForm = z.infer<typeof editClienteSchema>;
 
+const defaultQuincenaFields = {
+  q1_precaria: "", q1_empadronada: "", q2_precaria: "", q2_empadronada: "",
+};
+
 export default function ClienteDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -45,21 +48,13 @@ export default function ClienteDetalle() {
   const [editConfigOpen, setEditConfigOpen] = useState(false);
   const [editClienteOpen, setEditClienteOpen] = useState(false);
 
-  // Config form: hourly rates + step control
-  const [configStep, setConfigStep] = useState<1 | 2>(1);
   const [configForm, setConfigForm] = useState({
-    valor_hora_precaria: "",
-    valor_hora_empadronada: "",
-  });
-  // Quincenas data for all 12 months: { [mes]: { q1_precaria, q1_empadronada, q2_precaria, q2_empadronada } }
-  const [quincenasForm, setQuincenasForm] = useState<Record<number, { q1_precaria: string; q1_empadronada: string; q2_precaria: string; q2_empadronada: string }>>(() => {
-    const init: Record<number, any> = {};
-    for (let i = 1; i <= 12; i++) init[i] = { q1_precaria: "", q1_empadronada: "", q2_precaria: "", q2_empadronada: "" };
-    return init;
+    valor_hora_precaria: "", valor_hora_empadronada: "",
+    ...defaultQuincenaFields,
   });
   const [editConfigForm, setEditConfigForm] = useState({
-    valor_hora_precaria: "",
-    valor_hora_empadronada: "",
+    valor_hora_precaria: "", valor_hora_empadronada: "",
+    ...defaultQuincenaFields,
   });
 
   const editClienteForm = useForm<EditClienteForm>({
@@ -121,7 +116,7 @@ export default function ClienteDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al actualizar"),
   });
 
-
+  // Create plan mutation
   const createPlanMutation = useMutation({
     mutationFn: async () => {
       const vhp = Number(configForm.valor_hora_precaria);
@@ -129,19 +124,15 @@ export default function ClienteDetalle() {
       if (vhp < 0 || vhe < 0) throw new Error("Valores inválidos");
       if (vhp === 0 && vhe === 0) throw new Error("Debe ingresar al menos un valor por hora");
 
-      const quincenas_data = Array.from({ length: 12 }, (_, i) => {
-        const q = quincenasForm[i + 1];
-        return {
-          mes: i + 1,
-          q1_precaria: Number(q.q1_precaria) || 0,
-          q1_empadronada: Number(q.q1_empadronada) || 0,
-          q2_precaria: Number(q.q2_precaria) || 0,
-          q2_empadronada: Number(q.q2_empadronada) || 0,
-        };
-      });
-
       const res = await supabase.functions.invoke("crear-plan-anual", {
-        body: { cliente_id: id, anio: selectedYear, valor_hora_precaria: vhp, valor_hora_empadronada: vhe, quincenas_data },
+        body: {
+          cliente_id: id, anio: selectedYear,
+          valor_hora_precaria: vhp, valor_hora_empadronada: vhe,
+          q1_precaria: Number(configForm.q1_precaria) || 0,
+          q1_empadronada: Number(configForm.q1_empadronada) || 0,
+          q2_precaria: Number(configForm.q2_precaria) || 0,
+          q2_empadronada: Number(configForm.q2_empadronada) || 0,
+        },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
@@ -152,14 +143,12 @@ export default function ClienteDetalle() {
       queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
       toast.success("Plan anual creado con todos los meses y quincenas 🌱");
       setConfigOpen(false);
-      setConfigStep(1);
-      setConfigForm({ valor_hora_precaria: "", valor_hora_empadronada: "" });
-      const init: Record<number, any> = {};
-      for (let i = 1; i <= 12; i++) init[i] = { q1_precaria: "", q1_empadronada: "", q2_precaria: "", q2_empadronada: "" };
-      setQuincenasForm(init);
+      setConfigForm({ valor_hora_precaria: "", valor_hora_empadronada: "", ...defaultQuincenaFields });
     },
     onError: (err: any) => toast.error(err.message || "Error al crear plan anual"),
   });
+
+  // Edit config mutation
   const editConfigMutation = useMutation({
     mutationFn: async () => {
       if (!currentConfig) throw new Error("No hay configuración para editar");
@@ -168,7 +157,14 @@ export default function ClienteDetalle() {
       if (vhp < 0 || vhe < 0) throw new Error("Valores inválidos");
 
       const res = await supabase.functions.invoke("actualizar-configuracion", {
-        body: { configuracion_id: currentConfig.id, valor_hora_precaria: vhp, valor_hora_empadronada: vhe },
+        body: {
+          configuracion_id: currentConfig.id,
+          valor_hora_precaria: vhp, valor_hora_empadronada: vhe,
+          q1_precaria: Number(editConfigForm.q1_precaria) || 0,
+          q1_empadronada: Number(editConfigForm.q1_empadronada) || 0,
+          q2_precaria: Number(editConfigForm.q2_precaria) || 0,
+          q2_empadronada: Number(editConfigForm.q2_empadronada) || 0,
+        },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
@@ -206,10 +202,85 @@ export default function ClienteDetalle() {
       setEditConfigForm({
         valor_hora_precaria: String(currentConfig.valor_hora_discriminada),
         valor_hora_empadronada: String(currentConfig.valor_hora_no_discriminada),
+        q1_precaria: "", q1_empadronada: "", q2_precaria: "", q2_empadronada: "",
       });
     }
     setEditConfigOpen(true);
   };
+
+  // Helper to render calculation preview
+  const renderCalcPreview = (form: typeof configForm) => {
+    const vhp = Number(form.valor_hora_precaria) || 0;
+    const vhe = Number(form.valor_hora_empadronada) || 0;
+    const q1p = Number(form.q1_precaria) || 0;
+    const q1e = Number(form.q1_empadronada) || 0;
+    const q2p = Number(form.q2_precaria) || 0;
+    const q2e = Number(form.q2_empadronada) || 0;
+    const totalMinP = q1p + q2p;
+    const totalMinE = q1e + q2e;
+    const horasP = totalMinP > 0 ? Math.ceil(totalMinP / 60) : 0;
+    const horasE = totalMinE > 0 ? Math.ceil(totalMinE / 60) : 0;
+    const totalMes = (horasP * vhp) + (horasE * vhe);
+    const totalAnual = totalMes * 12;
+
+    if (totalMinP === 0 && totalMinE === 0) return null;
+
+    return (
+      <div className="bg-muted p-3 rounded-lg text-sm space-y-1">
+        <p className="font-semibold text-xs text-muted-foreground">📊 Cálculo por mes (se aplica a los 12 meses):</p>
+        {totalMinP > 0 && (
+          <p>💧 Precaria: {q1p} + {q2p} = {totalMinP} min → <strong>{horasP}h</strong> × ${vhp.toLocaleString()} = <strong>${(horasP * vhp).toLocaleString()}</strong></p>
+        )}
+        {totalMinE > 0 && (
+          <p>💧 Empadronada: {q1e} + {q2e} = {totalMinE} min → <strong>{horasE}h</strong> × ${vhe.toLocaleString()} = <strong>${(horasE * vhe).toLocaleString()}</strong></p>
+        )}
+        <hr className="border-border" />
+        <p className="font-bold">Total por mes: ${totalMes.toLocaleString()} | Total anual: ${totalAnual.toLocaleString()}</p>
+      </div>
+    );
+  };
+
+  // Helper to render quincena inputs
+  const renderQuincenaInputs = (form: typeof configForm, setForm: typeof setConfigForm) => (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">📅 Quincena 1</p>
+          <div>
+            <Label className="text-xs">Minutos Precaria</Label>
+            <Input type="number" min="0" step="1" placeholder="0"
+              value={form.q1_precaria}
+              onChange={(e) => setForm((p) => ({ ...p, q1_precaria: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Minutos Empadronada</Label>
+            <Input type="number" min="0" step="1" placeholder="0"
+              value={form.q1_empadronada}
+              onChange={(e) => setForm((p) => ({ ...p, q1_empadronada: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">📅 Quincena 2</p>
+          <div>
+            <Label className="text-xs">Minutos Precaria</Label>
+            <Input type="number" min="0" step="1" placeholder="0"
+              value={form.q2_precaria}
+              onChange={(e) => setForm((p) => ({ ...p, q2_precaria: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Minutos Empadronada</Label>
+            <Input type="number" min="0" step="1" placeholder="0"
+              value={form.q2_empadronada}
+              onChange={(e) => setForm((p) => ({ ...p, q2_empadronada: e.target.value }))}
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div>
@@ -315,142 +386,41 @@ export default function ClienteDetalle() {
         </Select>
 
         {!configExiste && (
-          <Dialog open={configOpen} onOpenChange={(open) => { setConfigOpen(open); if (!open) setConfigStep(1); }}>
+          <Dialog open={configOpen} onOpenChange={setConfigOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
                 <Settings className="h-4 w-4 mr-2" /> Crear Plan Anual {selectedYear}
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>
-                  {configStep === 1 ? `⚙️ Paso 1: Tarifas por Hora — ${selectedYear}` : `📋 Paso 2: Minutos por Quincena — ${selectedYear}`}
-                </DialogTitle>
+                <DialogTitle>⚙️ Plan Anual — {selectedYear}</DialogTitle>
               </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Ingrese las tarifas y los minutos por quincena. Se aplicarán <strong>iguales a los 12 meses</strong> del año.
+                </p>
 
-              {configStep === 1 && (
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Ingrese los valores por hora para cada tipo de riego.
-                  </p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>$/Hora Precaria</Label>
-                      <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label>$/Hora Empadronada</Label>
-                      <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
-                    </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>$/Hora Precaria</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
                   </div>
-                  <Button
-                    className="w-full"
-                    onClick={() => {
-                      const vhp = Number(configForm.valor_hora_precaria);
-                      const vhe = Number(configForm.valor_hora_empadronada);
-                      if (vhp === 0 && vhe === 0) { toast.error("Debe ingresar al menos un valor por hora"); return; }
-                      if (vhp < 0 || vhe < 0) { toast.error("Los valores no pueden ser negativos"); return; }
-                      setConfigStep(2);
-                    }}
-                  >
-                    Continuar — Cargar Quincenas <ChevronRight className="h-4 w-4 ml-2" />
-                  </Button>
+                  <div>
+                    <Label>$/Hora Empadronada</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
+                  </div>
                 </div>
-              )}
 
-              {configStep === 2 && (() => {
-                const vhp = Number(configForm.valor_hora_precaria) || 0;
-                const vhe = Number(configForm.valor_hora_empadronada) || 0;
-                let totalAnual = 0;
+                <hr className="border-border" />
+                <p className="text-sm font-medium">📅 Minutos por Quincena (para todos los meses)</p>
+                {renderQuincenaInputs(configForm, setConfigForm)}
+                {renderCalcPreview(configForm)}
 
-                return (
-                  <div className="flex flex-col gap-3 overflow-hidden">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Button variant="ghost" size="sm" onClick={() => setConfigStep(1)}>
-                        <ChevronLeft className="h-4 w-4 mr-1" /> Volver a Tarifas
-                      </Button>
-                      <span>💧 Precaria: ${vhp}/h | Empadronada: ${vhe}/h</span>
-                    </div>
-                    <ScrollArea className="flex-1 max-h-[55vh] pr-2">
-                      <div className="space-y-3">
-                        {MONTH_NAMES.map((name, i) => {
-                          const mes = i + 1;
-                          const q = quincenasForm[mes];
-                          const totalMinP = (Number(q.q1_precaria) || 0) + (Number(q.q2_precaria) || 0);
-                          const totalMinE = (Number(q.q1_empadronada) || 0) + (Number(q.q2_empadronada) || 0);
-                          const horasP = totalMinP > 0 ? Math.ceil(totalMinP / 60) : 0;
-                          const horasE = totalMinE > 0 ? Math.ceil(totalMinE / 60) : 0;
-                          const totalMes = (horasP * vhp) + (horasE * vhe);
-                          totalAnual += totalMes;
-
-                          return (
-                            <Card key={mes} className="border">
-                              <CardContent className="p-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-semibold text-sm">{name}</span>
-                                  <span className="text-sm font-bold">${totalMes.toLocaleString()}</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-1">
-                                    <p className="text-xs font-medium text-muted-foreground">Quincena 1</p>
-                                    <div className="grid grid-cols-2 gap-1">
-                                      <div>
-                                        <Label className="text-[10px]">Min. Precaria</Label>
-                                        <Input type="number" min="0" step="1" placeholder="0" className="h-8 text-sm"
-                                          value={q.q1_precaria}
-                                          onChange={(e) => setQuincenasForm(prev => ({ ...prev, [mes]: { ...prev[mes], q1_precaria: e.target.value } }))}
-                                        />
-                                      </div>
-                                      <div>
-                                        <Label className="text-[10px]">Min. Empadronada</Label>
-                                        <Input type="number" min="0" step="1" placeholder="0" className="h-8 text-sm"
-                                          value={q.q1_empadronada}
-                                          onChange={(e) => setQuincenasForm(prev => ({ ...prev, [mes]: { ...prev[mes], q1_empadronada: e.target.value } }))}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <p className="text-xs font-medium text-muted-foreground">Quincena 2</p>
-                                    <div className="grid grid-cols-2 gap-1">
-                                      <div>
-                                        <Label className="text-[10px]">Min. Precaria</Label>
-                                        <Input type="number" min="0" step="1" placeholder="0" className="h-8 text-sm"
-                                          value={q.q2_precaria}
-                                          onChange={(e) => setQuincenasForm(prev => ({ ...prev, [mes]: { ...prev[mes], q2_precaria: e.target.value } }))}
-                                        />
-                                      </div>
-                                      <div>
-                                        <Label className="text-[10px]">Min. Empadronada</Label>
-                                        <Input type="number" min="0" step="1" placeholder="0" className="h-8 text-sm"
-                                          value={q.q2_empadronada}
-                                          onChange={(e) => setQuincenasForm(prev => ({ ...prev, [mes]: { ...prev[mes], q2_empadronada: e.target.value } }))}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                                {(totalMinP > 0 || totalMinE > 0) && (
-                                  <div className="mt-2 text-[10px] text-muted-foreground bg-muted p-1.5 rounded">
-                                    {totalMinP > 0 && <span>Precaria: {totalMinP}min → {horasP}h × ${vhp} = ${(horasP * vhp).toLocaleString()} | </span>}
-                                    {totalMinE > 0 && <span>Empadronada: {totalMinE}min → {horasE}h × ${vhe} = ${(horasE * vhe).toLocaleString()}</span>}
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                    <div className="border-t pt-3 flex items-center justify-between">
-                      <div className="text-sm font-bold">Total Anual: <span className="text-primary">${totalAnual.toLocaleString()}</span></div>
-                      <Button onClick={() => createPlanMutation.mutate()} disabled={createPlanMutation.isPending}>
-                        {createPlanMutation.isPending ? "Guardando..." : "Guardar Plan Anual"}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })()}
+                <Button className="w-full" onClick={() => createPlanMutation.mutate()} disabled={createPlanMutation.isPending}>
+                  {createPlanMutation.isPending ? "Creando..." : "Crear Plan Anual y Generar 12 Meses"}
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
         )}
@@ -464,13 +434,13 @@ export default function ClienteDetalle() {
 
       {/* Edit Config Dialog */}
       <Dialog open={editConfigOpen} onOpenChange={setEditConfigOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>✏️ Editar Configuración — {selectedYear}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-sm">
-              ⚠️ Solo se recalcularán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
+              ⚠️ Solo se actualizarán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -482,11 +452,14 @@ export default function ClienteDetalle() {
                 <Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_empadronada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
               </div>
             </div>
-            <div className="text-sm bg-muted p-3 rounded-lg">
-              💧 El sistema recalculará los meses pendientes usando los minutos ya cargados en las quincenas con los nuevos valores por hora.
-            </div>
+
+            <hr className="border-border" />
+            <p className="text-sm font-medium">📅 Nuevos Minutos por Quincena (para meses pendientes)</p>
+            {renderQuincenaInputs(editConfigForm, setEditConfigForm)}
+            {renderCalcPreview(editConfigForm)}
+
             <Button className="w-full" onClick={() => editConfigMutation.mutate()} disabled={editConfigMutation.isPending}>
-              {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración"}
+              {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración y Meses Pendientes"}
             </Button>
           </div>
         </DialogContent>
