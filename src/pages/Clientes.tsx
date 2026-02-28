@@ -25,6 +25,10 @@ const clienteSchema = z.object({
   dni: z.string().min(5, "DNI inválido"),
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
+  titular_riego: z.string().optional(),
+  nombre_dueno: z.string().optional(),
+  nombre_propiedad: z.string().optional(),
+  nombre_regante: z.string().optional(),
 });
 
 type ClienteForm = z.infer<typeof clienteSchema>;
@@ -40,7 +44,7 @@ export default function Clientes() {
 
   const form = useForm<ClienteForm>({
     resolver: zodResolver(clienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", titular_riego: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
   });
 
   const { data: clientes, isLoading } = useQuery({
@@ -52,6 +56,20 @@ export default function Clientes() {
     },
   });
 
+  // Check suspension status for each client
+  const { data: mesesAll } = useQuery({
+    queryKey: ["meses_servicio_suspension_check"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("meses_servicio").select("cliente_id, estado_servicio");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const clienteIdsSuspendidos = new Set(
+    mesesAll?.filter((m) => (m as any).estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
+  );
+
   const createMutation = useMutation({
     mutationFn: async (values: ClienteForm) => {
       const { error } = await supabase.from("clientes").insert({
@@ -60,7 +78,11 @@ export default function Clientes() {
         dni: values.dni,
         telefono: values.telefono || null,
         email: values.email || null,
-      });
+        titular_riego: values.titular_riego || null,
+        nombre_dueno: values.nombre_dueno || null,
+        nombre_propiedad: values.nombre_propiedad || null,
+        nombre_regante: values.nombre_regante || null,
+      } as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -82,8 +104,8 @@ export default function Clientes() {
     mutationFn: async () => {
       const vhd = Number(globalForm.valor_hora_discriminada);
       const vhnd = Number(globalForm.valor_hora_no_discriminada);
-      if (vhd <= 0) throw new Error("Valor hora discriminada debe ser mayor a 0");
-      if (vhnd < 0) throw new Error("Valor hora no discriminada no puede ser negativo");
+      if (vhd <= 0) throw new Error("Valor hora precaria debe ser mayor a 0");
+      if (vhnd < 0) throw new Error("Valor hora empadronada no puede ser negativo");
 
       const res = await supabase.functions.invoke("actualizar-valores-globales", {
         body: { valor_hora_discriminada: vhd, valor_hora_no_discriminada: vhnd },
@@ -105,7 +127,9 @@ export default function Clientes() {
     const matchSearch =
       c.nombre.toLowerCase().includes(search.toLowerCase()) ||
       c.apellido.toLowerCase().includes(search.toLowerCase()) ||
-      c.dni.includes(search);
+      c.dni.includes(search) ||
+      ((c as any).titular_riego || "").toLowerCase().includes(search.toLowerCase()) ||
+      ((c as any).nombre_propiedad || "").toLowerCase().includes(search.toLowerCase());
     const matchEstado = filtroEstado === "todos" || c.estado === filtroEstado;
     return matchSearch && matchEstado;
   });
@@ -119,7 +143,6 @@ export default function Clientes() {
           <p className="text-sm text-muted-foreground">👥 Gestión de clientes del sistema de riego</p>
         </div>
         <div className="flex gap-2">
-          {/* Global update button */}
           <Dialog open={globalOpen} onOpenChange={setGlobalOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
@@ -135,11 +158,11 @@ export default function Clientes() {
                   ⚠️ Esta acción actualizará todos los meses <strong>pendientes</strong> de todos los clientes activos del año actual. Los meses ya pagados <strong>no se modificarán</strong>.
                 </div>
                 <div>
-                  <Label>Nuevo Valor/Hora Discriminada ($)</Label>
+                  <Label>Nuevo Valor/Hora Precaria ($)</Label>
                   <Input type="number" min="0" step="0.01" value={globalForm.valor_hora_discriminada} onChange={(e) => setGlobalForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} />
                 </div>
                 <div>
-                  <Label>Nuevo Valor/Hora No Discriminada ($)</Label>
+                  <Label>Nuevo Valor/Hora Empadronada ($)</Label>
                   <Input type="number" min="0" step="0.01" value={globalForm.valor_hora_no_discriminada} onChange={(e) => setGlobalForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} />
                 </div>
                 <AlertDialog>
@@ -174,7 +197,7 @@ export default function Clientes() {
                 <Plus className="h-4 w-4 mr-2" /> Nuevo Cliente
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>🌱 Nuevo Cliente</DialogTitle>
               </DialogHeader>
@@ -197,6 +220,20 @@ export default function Clientes() {
                   <FormField control={form.control} name="email" render={({ field }) => (
                     <FormItem><FormLabel>Email</FormLabel><FormControl><Input placeholder="juan@email.com" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
+                  <hr />
+                  <p className="text-sm font-medium text-muted-foreground">🌾 Datos de Riego</p>
+                  <FormField control={form.control} name="titular_riego" render={({ field }) => (
+                    <FormItem><FormLabel>Titular de Riego</FormLabel><FormControl><Input placeholder="Nombre del titular" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="nombre_dueno" render={({ field }) => (
+                    <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input placeholder="Nombre del dueño" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="nombre_propiedad" render={({ field }) => (
+                    <FormItem><FormLabel>Nombre de Propiedad</FormLabel><FormControl><Input placeholder="Finca Los Álamos" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="nombre_regante" render={({ field }) => (
+                    <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input placeholder="Nombre del regante" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
                   <Button type="submit" className="w-full" disabled={createMutation.isPending}>
                     {createMutation.isPending ? "Creando..." : "Crear Cliente"}
                   </Button>
@@ -207,11 +244,10 @@ export default function Clientes() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por nombre, apellido o DNI..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar por nombre, apellido, DNI, titular o propiedad..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={filtroEstado} onValueChange={setFiltroEstado}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Estado" /></SelectTrigger>
@@ -223,7 +259,6 @@ export default function Clientes() {
         </Select>
       </div>
 
-      {/* Client list */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
@@ -232,29 +267,38 @@ export default function Clientes() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered?.map((c, i) => (
-            <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-              <Card className="cursor-pointer hover:shadow-md hover:border-primary/30 transition-all" onClick={() => navigate(`/clientes/${c.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                      <UserCircle className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold truncate">{c.nombre} {c.apellido}</span>
-                        <Badge variant={c.estado === "activo" ? "default" : "destructive"} className="text-[10px]">
-                          {c.estado === "activo" ? "🟢 Activo" : "🔴 Inactivo"}
-                        </Badge>
+          {filtered?.map((c, i) => {
+            const isSuspendido = clienteIdsSuspendidos.has(c.id);
+            return (
+              <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                <Card className="cursor-pointer hover:shadow-md hover:border-primary/30 transition-all" onClick={() => navigate(`/clientes/${c.id}`)}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                        <UserCircle className="h-5 w-5 text-primary" />
                       </div>
-                      <p className="text-sm text-muted-foreground">DNI: {c.dni}</p>
-                      {c.telefono && <p className="text-xs text-muted-foreground">{c.telefono}</p>}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold truncate">{c.nombre} {c.apellido}</span>
+                          <Badge variant={c.estado === "activo" ? "default" : "destructive"} className="text-[10px]">
+                            {c.estado === "activo" ? "🟢 Activo" : "🔴 Inactivo"}
+                          </Badge>
+                          {isSuspendido && (
+                            <Badge variant="secondary" className="text-[10px] bg-muted-foreground/20">⏸ Suspendido</Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">DNI: {c.dni}</p>
+                        {(c as any).nombre_propiedad && (
+                          <p className="text-xs text-muted-foreground">🏡 {(c as any).nombre_propiedad}</p>
+                        )}
+                        {c.telefono && <p className="text-xs text-muted-foreground">{c.telefono}</p>}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            );
+          })}
           {filtered?.length === 0 && (
             <div className="col-span-full text-center py-12 text-muted-foreground">No se encontraron clientes</div>
           )}

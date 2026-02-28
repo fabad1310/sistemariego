@@ -3,18 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useNavigate } from "react-router-dom";
+import { Download } from "lucide-react";
+import * as XLSX from "xlsx";
 
 const MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const MONTH_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 export default function Reportes() {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
   const [year, setYear] = useState(currentYear);
 
   const { data: clientes } = useQuery({
@@ -44,15 +49,27 @@ export default function Reportes() {
     },
   });
 
-  // Debtors
+  // Debtors - only up to current month, active service
+  const maxMonth = year === currentYear ? currentMonth : 12;
   const deudores = clientes?.map((c) => {
-    const mesesCliente = meses?.filter((m) => m.cliente_id === c.id) ?? [];
-    const deuda = mesesCliente.reduce((s, m) => s + Number(m.saldo_pendiente), 0);
-    const total = mesesCliente.reduce((s, m) => s + Number(m.total_calculado), 0);
-    return { ...c, deuda, total };
+    const mesesCliente = meses?.filter((m) =>
+      m.cliente_id === c.id &&
+      m.mes <= maxMonth &&
+      (m as any).estado_servicio !== "suspendido"
+    ) ?? [];
+    const deuda = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0).reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+    const mesesPendientes = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0);
+    return {
+      ...c,
+      deuda,
+      mesesPendientes,
+      titular_riego: (c as any).titular_riego || "",
+      nombre_dueno: (c as any).nombre_dueno || "",
+      nombre_propiedad: (c as any).nombre_propiedad || "",
+      nombre_regante: (c as any).nombre_regante || "",
+    };
   }).filter((c) => c.deuda > 0).sort((a, b) => b.deuda - a.deuda) ?? [];
 
-  // Monthly global data
   const monthlyGlobal = MONTH_NAMES.map((name, i) => {
     const mesNum = i + 1;
     const mesesMes = meses?.filter((m) => m.mes === mesNum) ?? [];
@@ -63,6 +80,47 @@ export default function Reportes() {
       pendiente: mesesMes.reduce((s, m) => s + Number(m.saldo_pendiente), 0),
     };
   });
+
+  // Export debtors to Excel
+  const exportDeudores = () => {
+    const rows: any[] = [];
+    deudores.forEach((d) => {
+      d.mesesPendientes.forEach((m) => {
+        rows.push({
+          Cliente: `${d.nombre} ${d.apellido}`,
+          Dueño: d.nombre_dueno,
+          Propiedad: d.nombre_propiedad,
+          Regante: d.nombre_regante,
+          "Titular Riego": d.titular_riego,
+          Mes: MONTH_FULL[m.mes - 1],
+          Saldo: Number(m.saldo_pendiente),
+          "Deuda Total": d.deuda,
+        });
+      });
+    });
+
+    if (rows.length === 0) {
+      rows.push({ Cliente: "Sin deudores" });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Deudores");
+    XLSX.writeFile(wb, `reporte_deudores_${year}.xlsx`);
+  };
+
+  // Export global monthly report
+  const exportGlobal = () => {
+    const ws = XLSX.utils.json_to_sheet(monthlyGlobal.map(m => ({
+      Mes: m.name,
+      Facturado: m.facturado,
+      Cobrado: m.cobrado,
+      Pendiente: m.pendiente,
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Reporte Mensual");
+    XLSX.writeFile(wb, `reporte_mensual_${year}.xlsx`);
+  };
 
   return (
     <div>
@@ -93,8 +151,11 @@ export default function Reportes() {
 
         <TabsContent value="mensual">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Facturación vs Cobro — {year}</CardTitle>
+              <Button variant="outline" size="sm" onClick={exportGlobal}>
+                <Download className="h-4 w-4 mr-2" /> Excel
+              </Button>
             </CardHeader>
             <CardContent>
               <div className="h-[350px]">
@@ -115,8 +176,11 @@ export default function Reportes() {
 
         <TabsContent value="deudores">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">⚠️ Clientes con Deuda — {year}</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">⚠️ Clientes con Deuda — {year} (hasta {MONTH_NAMES[maxMonth - 1]})</CardTitle>
+              <Button variant="outline" size="sm" onClick={exportDeudores}>
+                <Download className="h-4 w-4 mr-2" /> Excel
+              </Button>
             </CardHeader>
             <CardContent>
               {deudores.length > 0 ? (
@@ -124,17 +188,27 @@ export default function Reportes() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Cliente</TableHead>
-                      <TableHead>DNI</TableHead>
-                      <TableHead className="text-right">Total Año</TableHead>
-                      <TableHead className="text-right">Deuda</TableHead>
+                      <TableHead>Dueño</TableHead>
+                      <TableHead>Propiedad</TableHead>
+                      <TableHead>Regante</TableHead>
+                      <TableHead>Meses Pend.</TableHead>
+                      <TableHead className="text-right">Deuda Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {deudores.map((d) => (
                       <TableRow key={d.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/clientes/${d.id}`)}>
                         <TableCell className="font-medium">{d.nombre} {d.apellido}</TableCell>
-                        <TableCell>{d.dni}</TableCell>
-                        <TableCell className="text-right">${d.total.toLocaleString()}</TableCell>
+                        <TableCell className="text-sm">{d.nombre_dueno || "—"}</TableCell>
+                        <TableCell className="text-sm">{d.nombre_propiedad || "—"}</TableCell>
+                        <TableCell className="text-sm">{d.nombre_regante || "—"}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {d.mesesPendientes.map(m => (
+                              <Badge key={m.id} variant="outline" className="text-[10px]">{MONTH_NAMES[m.mes - 1]}</Badge>
+                            ))}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right">
                           <Badge variant="destructive">${d.deuda.toLocaleString()}</Badge>
                         </TableCell>
@@ -143,7 +217,7 @@ export default function Reportes() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores en {year}</p>
+                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores en {year} (hasta {MONTH_NAMES[maxMonth - 1]})</p>
               )}
             </CardContent>
           </Card>
