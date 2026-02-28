@@ -1,0 +1,7 @@
+project_id = "gyryavcrsygdgrlxhtax"
+
+[functions.crear-configuracion]
+verify_jwt = false
+
+[functions.registrar-pago]
+verify_jwt = false
