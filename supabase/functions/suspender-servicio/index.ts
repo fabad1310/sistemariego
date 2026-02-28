@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,10 +19,16 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { mes_servicio_id, accion } = await req.json();
+    const body = await req.json();
+    const { mes_servicio_id, accion } = body;
 
-    if (!mes_servicio_id) throw new Error("mes_servicio_id es requerido");
-    if (!["suspender", "reactivar"].includes(accion)) throw new Error("accion debe ser 'suspender' o 'reactivar'");
+    // UUID validation
+    if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
+
+    // Action validation
+    if (typeof accion !== "string" || !["suspender", "reactivar"].includes(accion)) {
+      throw new Error("accion debe ser 'suspender' o 'reactivar'");
+    }
 
     // Get the target month
     const { data: mes, error: mesErr } = await supabase
@@ -31,13 +39,11 @@ serve(async (req) => {
 
     if (mesErr || !mes) throw new Error("Mes de servicio no encontrado");
 
-    // Cannot suspend a paid month
     if (accion === "suspender" && mes.estado_mes === "pagado") {
       throw new Error("No se puede suspender un mes ya pagado");
     }
 
     if (accion === "suspender") {
-      // Suspend current month
       const { error: suspErr } = await supabase
         .from("meses_servicio")
         .update({
@@ -49,7 +55,6 @@ serve(async (req) => {
         .eq("id", mes_servicio_id);
       if (suspErr) throw suspErr;
 
-      // Suspend all future months in same year that are pending
       const { data: futureMeses, error: futErr } = await supabase
         .from("meses_servicio")
         .select("*")
@@ -78,8 +83,6 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } else {
-      // Reactivar: set current month and future months as active + pending
-      // Get config to recalculate
       const { data: config, error: confErr } = await supabase
         .from("configuracion_riego_cliente")
         .select("*")
@@ -91,7 +94,6 @@ serve(async (req) => {
       const total_calculado = (Number(config.horas_discriminadas) * Number(config.valor_hora_discriminada)) +
         (Number(config.horas_no_discriminadas) * Number(config.valor_hora_no_discriminada));
 
-      // Reactivate current month
       const { error: reactErr } = await supabase
         .from("meses_servicio")
         .update({
@@ -103,7 +105,6 @@ serve(async (req) => {
         .eq("id", mes_servicio_id);
       if (reactErr) throw reactErr;
 
-      // Reactivate future suspended months
       const { data: futureSusp, error: futSErr } = await supabase
         .from("meses_servicio")
         .select("*")

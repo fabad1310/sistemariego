@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const MAX_VALUE = 100000000;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,10 +19,16 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { valor_hora_discriminada, valor_hora_no_discriminada } = await req.json();
+    const body = await req.json();
+    const { valor_hora_discriminada, valor_hora_no_discriminada } = body;
 
-    if (valor_hora_discriminada <= 0) throw new Error("valor_hora_discriminada debe ser mayor a 0");
-    if (valor_hora_no_discriminada < 0) throw new Error("valor_hora_no_discriminada no puede ser negativo");
+    // Numeric validations with type checking and bounds
+    if (typeof valor_hora_discriminada !== "number" || !Number.isFinite(valor_hora_discriminada) || valor_hora_discriminada <= 0 || valor_hora_discriminada > MAX_VALUE) {
+      throw new Error("valor_hora_discriminada debe ser un número positivo válido");
+    }
+    if (typeof valor_hora_no_discriminada !== "number" || !Number.isFinite(valor_hora_no_discriminada) || valor_hora_no_discriminada < 0 || valor_hora_no_discriminada > MAX_VALUE) {
+      throw new Error("valor_hora_no_discriminada no puede ser negativo");
+    }
 
     const currentYear = new Date().getFullYear();
 
@@ -56,7 +64,6 @@ serve(async (req) => {
       const nuevo_total = (Number(config.horas_discriminadas) * valor_hora_discriminada) +
         (Number(config.horas_no_discriminadas) * valor_hora_no_discriminada);
 
-      // Update config values
       const { error: updateConfigErr } = await supabase
         .from("configuracion_riego_cliente")
         .update({ valor_hora_discriminada, valor_hora_no_discriminada })
@@ -65,7 +72,6 @@ serve(async (req) => {
       if (updateConfigErr) throw updateConfigErr;
       configsActualizadas++;
 
-      // Only recalculate PENDING months
       const { data: mesesPendientes, error: mesesErr } = await supabase
         .from("meses_servicio")
         .select("*")
