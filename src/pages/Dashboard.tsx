@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, AlertTriangle, DollarSign, TrendingUp } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Banknote } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +19,7 @@ const cardVariant = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1; // 1-12
 
   const { data: clientes } = useQuery({
     queryKey: ["clientes"],
@@ -39,16 +40,21 @@ export default function Dashboard() {
   });
 
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
-  const totalFacturado = meses?.reduce((s, m) => s + Number(m.total_calculado), 0) ?? 0;
-  const totalCobrado = meses?.reduce((s, m) => s + Number(m.total_pagado), 0) ?? 0;
 
-  // Clients with debt
+  // ONLY consider months up to current month for debt calculations
+  const mesesHastaActual = meses?.filter((m) => m.mes <= currentMonth) ?? [];
+  const totalCobrado = mesesHastaActual.reduce((s, m) => s + Number(m.total_pagado), 0);
+  const totalDeuda = mesesHastaActual
+    .filter((m) => Number(m.saldo_pendiente) > 0)
+    .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+
+  // Clients with debt (only months up to current)
   const clienteIdsConDeuda = new Set(
-    meses?.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id) ?? []
+    mesesHastaActual.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
   );
   const clientesConDeuda = clientes?.filter((c) => clienteIdsConDeuda.has(c.id)) ?? [];
 
-  // Monthly chart data
+  // Monthly chart data (all months for the chart)
   const monthlyData = MONTHS.map((name, i) => {
     const mesNum = i + 1;
     const mesesMes = meses?.filter((m) => m.mes === mesNum) ?? [];
@@ -59,16 +65,16 @@ export default function Dashboard() {
     };
   });
 
-  // Pie chart data
+  // Pie chart data - cobrado vs deuda (only up to current month)
   const pieData = [
     { name: "Cobrado", value: totalCobrado },
-    { name: "Pendiente", value: Math.max(0, totalFacturado - totalCobrado) },
+    { name: "Pendiente", value: totalDeuda },
   ];
 
   const kpis = [
     { label: "Clientes Activos", value: clientesActivos, icon: Users, emoji: "🌱" },
     { label: "Clientes con Deuda", value: clientesConDeuda.length, icon: AlertTriangle, emoji: "⚠️" },
-    { label: "Total Facturado", value: `$${totalFacturado.toLocaleString()}`, icon: DollarSign, emoji: "📊" },
+    { label: "Total Deuda Clientes", value: `$${totalDeuda.toLocaleString()}`, icon: Banknote, emoji: "🔴" },
     { label: "Total Cobrado", value: `$${totalCobrado.toLocaleString()}`, icon: TrendingUp, emoji: "💰" },
   ];
 
@@ -78,7 +84,7 @@ export default function Dashboard() {
         <SidebarTrigger />
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego — {currentYear}</p>
+          <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego — {currentYear} (hasta {MONTHS[currentMonth - 1]})</p>
         </div>
       </div>
 
@@ -146,14 +152,14 @@ export default function Dashboard() {
       {clientesConDeuda.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente</CardTitle>
+            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente (hasta {MONTHS[currentMonth - 1]} {currentYear})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {clientesConDeuda.slice(0, 10).map((c) => {
-                const deuda = meses
-                  ?.filter((m) => m.cliente_id === c.id && Number(m.saldo_pendiente) > 0)
-                  .reduce((s, m) => s + Number(m.saldo_pendiente), 0) ?? 0;
+                const deuda = mesesHastaActual
+                  .filter((m) => m.cliente_id === c.id && Number(m.saldo_pendiente) > 0)
+                  .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
                 return (
                   <div
                     key={c.id}

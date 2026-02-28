@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.registrar-pago]
 verify_jwt = false
+
+[functions.actualizar-configuracion]
+verify_jwt = false
+
+[functions.actualizar-valores-globales]
+verify_jwt = false
