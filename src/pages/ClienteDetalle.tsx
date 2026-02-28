@@ -10,12 +10,26 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Settings, CalendarDays } from "lucide-react";
+import { ArrowLeft, Settings, CalendarDays, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+const editClienteSchema = z.object({
+  nombre: z.string().min(2, "Mínimo 2 caracteres"),
+  apellido: z.string().min(2, "Mínimo 2 caracteres"),
+  dni: z.string().min(5, "DNI inválido"),
+  telefono: z.string().optional(),
+  email: z.string().email("Email inválido").optional().or(z.literal("")),
+  estado: z.enum(["activo", "inactivo"]),
+});
+type EditClienteForm = z.infer<typeof editClienteSchema>;
 
 export default function ClienteDetalle() {
   const { id } = useParams<{ id: string }>();
@@ -24,11 +38,24 @@ export default function ClienteDetalle() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [configOpen, setConfigOpen] = useState(false);
+  const [editConfigOpen, setEditConfigOpen] = useState(false);
+  const [editClienteOpen, setEditClienteOpen] = useState(false);
   const [configForm, setConfigForm] = useState({
     horas_discriminadas: "",
     horas_no_discriminadas: "",
     valor_hora_discriminada: "",
     valor_hora_no_discriminada: "",
+  });
+  const [editConfigForm, setEditConfigForm] = useState({
+    horas_discriminadas: "",
+    horas_no_discriminadas: "",
+    valor_hora_discriminada: "",
+    valor_hora_no_discriminada: "",
+  });
+
+  const editClienteForm = useForm<EditClienteForm>({
+    resolver: zodResolver(editClienteSchema),
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo" },
   });
 
   const { data: cliente } = useQuery({
@@ -61,24 +88,50 @@ export default function ClienteDetalle() {
   const availableYears = [...new Set(configs?.map((c) => c.anio) ?? [])].sort((a, b) => b - a);
   if (availableYears.length === 0) availableYears.push(currentYear);
 
+  const currentConfig = configs?.find((c) => c.anio === selectedYear);
+
+  // Edit client mutation
+  const editClienteMutation = useMutation({
+    mutationFn: async (values: EditClienteForm) => {
+      // Check DNI uniqueness (exclude self)
+      const { data: existing } = await supabase
+        .from("clientes")
+        .select("id")
+        .eq("dni", values.dni)
+        .neq("id", id!)
+        .maybeSingle();
+      if (existing) throw new Error("Ya existe otro cliente con ese DNI");
+
+      const { error } = await supabase.from("clientes").update({
+        nombre: values.nombre,
+        apellido: values.apellido,
+        dni: values.dni,
+        telefono: values.telefono || null,
+        email: values.email || null,
+        estado: values.estado,
+      }).eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cliente", id] });
+      queryClient.invalidateQueries({ queryKey: ["clientes"] });
+      toast.success("Cliente actualizado ✅");
+      setEditClienteOpen(false);
+    },
+    onError: (err: any) => toast.error(err.message || "Error al actualizar"),
+  });
+
+  // Create config mutation
   const createConfigMutation = useMutation({
     mutationFn: async () => {
       const hd = Number(configForm.horas_discriminadas);
       const hnd = Number(configForm.horas_no_discriminadas);
       const vhd = Number(configForm.valor_hora_discriminada);
       const vhnd = Number(configForm.valor_hora_no_discriminada);
-
       if (hd <= 0 || hnd < 0 || vhd <= 0 || vhnd < 0) throw new Error("Valores inválidos");
 
       const res = await supabase.functions.invoke("crear-configuracion", {
-        body: {
-          cliente_id: id,
-          anio: selectedYear,
-          horas_discriminadas: hd,
-          horas_no_discriminadas: hnd,
-          valor_hora_discriminada: vhd,
-          valor_hora_no_discriminada: vhnd,
-        },
+        body: { cliente_id: id, anio: selectedYear, horas_discriminadas: hd, horas_no_discriminadas: hnd, valor_hora_discriminada: vhd, valor_hora_no_discriminada: vhnd },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
@@ -91,9 +144,33 @@ export default function ClienteDetalle() {
       setConfigOpen(false);
       setConfigForm({ horas_discriminadas: "", horas_no_discriminadas: "", valor_hora_discriminada: "", valor_hora_no_discriminada: "" });
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Error al crear configuración");
+    onError: (err: any) => toast.error(err.message || "Error al crear configuración"),
+  });
+
+  // Edit config mutation
+  const editConfigMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentConfig) throw new Error("No hay configuración para editar");
+      const hd = Number(editConfigForm.horas_discriminadas);
+      const hnd = Number(editConfigForm.horas_no_discriminadas);
+      const vhd = Number(editConfigForm.valor_hora_discriminada);
+      const vhnd = Number(editConfigForm.valor_hora_no_discriminada);
+      if (hd <= 0 || hnd < 0 || vhd <= 0 || vhnd < 0) throw new Error("Valores inválidos");
+
+      const res = await supabase.functions.invoke("actualizar-configuracion", {
+        body: { configuracion_id: currentConfig.id, horas_discriminadas: hd, horas_no_discriminadas: hnd, valor_hora_discriminada: vhd, valor_hora_no_discriminada: vhnd },
+      });
+      if (res.error) throw res.error;
+      if (res.data?.error) throw new Error(res.data.error);
+      return res.data;
     },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["configuraciones", id] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
+      toast.success(`Configuración actualizada. ${data?.meses_actualizados ?? 0} meses pendientes recalculados ✅`);
+      setEditConfigOpen(false);
+    },
+    onError: (err: any) => toast.error(err.message || "Error al actualizar configuración"),
   });
 
   const totalAnio = meses?.reduce((s, m) => s + Number(m.total_calculado), 0) ?? 0;
@@ -103,6 +180,38 @@ export default function ClienteDetalle() {
   const configExiste = configs?.some((c) => c.anio === selectedYear);
 
   const htCalc = Number(configForm.horas_discriminadas || 0) + Number(configForm.horas_no_discriminadas || 0);
+
+  // Populate edit client form when opening
+  const handleOpenEditCliente = () => {
+    if (cliente) {
+      editClienteForm.reset({
+        nombre: cliente.nombre,
+        apellido: cliente.apellido,
+        dni: cliente.dni,
+        telefono: cliente.telefono || "",
+        email: cliente.email || "",
+        estado: cliente.estado as "activo" | "inactivo",
+      });
+    }
+    setEditClienteOpen(true);
+  };
+
+  // Populate edit config form when opening
+  const handleOpenEditConfig = () => {
+    if (currentConfig) {
+      setEditConfigForm({
+        horas_discriminadas: String(currentConfig.horas_discriminadas),
+        horas_no_discriminadas: String(currentConfig.horas_no_discriminadas),
+        valor_hora_discriminada: String(currentConfig.valor_hora_discriminada),
+        valor_hora_no_discriminada: String(currentConfig.valor_hora_no_discriminada),
+      });
+    }
+    setEditConfigOpen(true);
+  };
+
+  const editHtCalc = Number(editConfigForm.horas_discriminadas || 0) + Number(editConfigForm.horas_no_discriminadas || 0);
+  const editTotalEstimado = (Number(editConfigForm.horas_discriminadas || 0) * Number(editConfigForm.valor_hora_discriminada || 0)) +
+    (Number(editConfigForm.horas_no_discriminadas || 0) * Number(editConfigForm.valor_hora_no_discriminada || 0));
 
   return (
     <div>
@@ -124,7 +233,56 @@ export default function ClienteDetalle() {
             )}
           </p>
         </div>
+        <Button variant="outline" size="sm" onClick={handleOpenEditCliente}>
+          <Pencil className="h-4 w-4 mr-2" /> Editar Cliente
+        </Button>
       </div>
+
+      {/* Edit Client Dialog */}
+      <Dialog open={editClienteOpen} onOpenChange={setEditClienteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>✏️ Editar Cliente</DialogTitle>
+          </DialogHeader>
+          <Form {...editClienteForm}>
+            <form onSubmit={editClienteForm.handleSubmit((v) => editClienteMutation.mutate(v))} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField control={editClienteForm.control} name="nombre" render={({ field }) => (
+                  <FormItem><FormLabel>Nombre</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={editClienteForm.control} name="apellido" render={({ field }) => (
+                  <FormItem><FormLabel>Apellido</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+              </div>
+              <FormField control={editClienteForm.control} name="dni" render={({ field }) => (
+                <FormItem><FormLabel>DNI</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="telefono" render={({ field }) => (
+                <FormItem><FormLabel>Teléfono</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="email" render={({ field }) => (
+                <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editClienteForm.control} name="estado" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Estado</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value="activo">🟢 Activo</SelectItem>
+                      <SelectItem value="inactivo">🔴 Inactivo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <Button type="submit" className="w-full" disabled={editClienteMutation.isPending}>
+                {editClienteMutation.isPending ? "Guardando..." : "Guardar Cambios"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       {/* Year selector + config */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -153,25 +311,13 @@ export default function ClienteDetalle() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Horas Discriminadas</Label>
-                    <Input type="number" min="0" step="0.01" value={configForm.horas_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Horas No Discriminadas</Label>
-                    <Input type="number" min="0" step="0.01" value={configForm.horas_no_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} />
-                  </div>
+                  <div><Label>Horas Discriminadas</Label><Input type="number" min="0" step="0.01" value={configForm.horas_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
+                  <div><Label>Horas No Discriminadas</Label><Input type="number" min="0" step="0.01" value={configForm.horas_no_discriminadas} onChange={(e) => setConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
                 </div>
                 <div className="text-sm text-muted-foreground">Horas totales/mes: <strong>{htCalc}</strong></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Valor/Hora Discriminada ($)</Label>
-                    <Input type="number" min="0" step="0.01" value={configForm.valor_hora_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Valor/Hora No Discriminada ($)</Label>
-                    <Input type="number" min="0" step="0.01" value={configForm.valor_hora_no_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} />
-                  </div>
+                  <div><Label>Valor/Hora Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
+                  <div><Label>Valor/Hora No Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={configForm.valor_hora_no_discriminada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
                 </div>
                 <div className="text-sm bg-muted p-3 rounded-lg">
                   💧 Total mensual estimado: <strong>${((Number(configForm.horas_discriminadas || 0) * Number(configForm.valor_hora_discriminada || 0)) + (Number(configForm.horas_no_discriminadas || 0) * Number(configForm.valor_hora_no_discriminada || 0))).toLocaleString()}</strong>
@@ -183,7 +329,42 @@ export default function ClienteDetalle() {
             </DialogContent>
           </Dialog>
         )}
+
+        {configExiste && (
+          <Button variant="outline" onClick={handleOpenEditConfig}>
+            <Pencil className="h-4 w-4 mr-2" /> Editar Configuración {selectedYear}
+          </Button>
+        )}
       </div>
+
+      {/* Edit Config Dialog */}
+      <Dialog open={editConfigOpen} onOpenChange={setEditConfigOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>✏️ Editar Configuración — {selectedYear}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-sm">
+              ⚠️ Solo se recalcularán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Horas Discriminadas</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_discriminadas: e.target.value }))} /></div>
+              <div><Label>Horas No Discriminadas</Label><Input type="number" min="0" step="0.01" value={editConfigForm.horas_no_discriminadas} onChange={(e) => setEditConfigForm((p) => ({ ...p, horas_no_discriminadas: e.target.value }))} /></div>
+            </div>
+            <div className="text-sm text-muted-foreground">Horas totales/mes: <strong>{editHtCalc}</strong></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Valor/Hora Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_discriminada: e.target.value }))} /></div>
+              <div><Label>Valor/Hora No Discriminada ($)</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_no_discriminada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_no_discriminada: e.target.value }))} /></div>
+            </div>
+            <div className="text-sm bg-muted p-3 rounded-lg">
+              💧 Nuevo total mensual estimado: <strong>${editTotalEstimado.toLocaleString()}</strong>
+            </div>
+            <Button className="w-full" onClick={() => editConfigMutation.mutate()} disabled={editConfigMutation.isPending}>
+              {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Year Summary */}
       {configExiste && (
@@ -214,12 +395,7 @@ export default function ClienteDetalle() {
         {meses?.map((m, i) => {
           const pagado = m.estado_mes === "pagado";
           return (
-            <motion.div
-              key={m.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.03 }}
-            >
+            <motion.div key={m.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
               <Card
                 className={`cursor-pointer hover:shadow-md transition-all border-2 ${pagado ? "border-success/40 bg-success/5" : "border-destructive/20 bg-destructive/5"}`}
                 onClick={() => navigate(`/clientes/${id}/mes/${m.id}`)}
@@ -228,9 +404,7 @@ export default function ClienteDetalle() {
                   <p className="text-xs font-medium text-muted-foreground">{MONTH_NAMES[m.mes - 1]}</p>
                   <p className="text-sm font-bold mt-1">{pagado ? "🟢" : "🔴"}</p>
                   <p className="text-xs mt-1">${Number(m.total_calculado).toLocaleString()}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    Pagado: ${Number(m.total_pagado).toLocaleString()}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground">Pagado: ${Number(m.total_pagado).toLocaleString()}</p>
                 </CardContent>
               </Card>
             </motion.div>
