@@ -8,6 +8,7 @@ const corsHeaders = {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_VALUE = 100000000;
+const MAX_MINUTES = 100000;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -21,17 +22,28 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { configuracion_id, valor_hora_precaria, valor_hora_empadronada } = body;
+    const {
+      configuracion_id,
+      valor_hora_precaria, valor_hora_empadronada,
+      q1_precaria, q1_empadronada, q2_precaria, q2_empadronada
+    } = body;
 
     // UUID validation
     if (!configuracion_id || !UUID_REGEX.test(String(configuracion_id))) throw new Error("configuracion_id inválido");
 
     // Rate validations
     if (typeof valor_hora_precaria !== "number" || !Number.isFinite(valor_hora_precaria) || valor_hora_precaria < 0 || valor_hora_precaria > MAX_VALUE) {
-      throw new Error("valor_hora_precaria debe ser un número no negativo válido");
+      throw new Error("valor_hora_precaria inválido");
     }
     if (typeof valor_hora_empadronada !== "number" || !Number.isFinite(valor_hora_empadronada) || valor_hora_empadronada < 0 || valor_hora_empadronada > MAX_VALUE) {
-      throw new Error("valor_hora_empadronada debe ser un número no negativo válido");
+      throw new Error("valor_hora_empadronada inválido");
+    }
+
+    // Validate quincena minutes
+    for (const [field, val] of Object.entries({ q1_precaria, q1_empadronada, q2_precaria, q2_empadronada })) {
+      if (typeof val !== "number" || !Number.isFinite(val) || val < 0 || val > MAX_MINUTES || !Number.isInteger(val)) {
+        throw new Error(`${field} debe ser un entero no negativo`);
+      }
     }
 
     // Update config rates
@@ -47,7 +59,14 @@ serve(async (req) => {
 
     if (configErr) throw configErr;
 
-    // Recalculate PENDING months using existing quincenas + new rates
+    // Calculate new values
+    const totalMinPrecaria = q1_precaria + q2_precaria;
+    const totalMinEmpadronada = q1_empadronada + q2_empadronada;
+    const horasPrecFinal = totalMinPrecaria > 0 ? Math.ceil(totalMinPrecaria / 60) : 0;
+    const horasEmpFinal = totalMinEmpadronada > 0 ? Math.ceil(totalMinEmpadronada / 60) : 0;
+    const totalCalc = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
+
+    // Get PENDING months only
     const { data: mesesPendientes, error: mesesErr } = await supabase
       .from("meses_servicio")
       .select("*")
@@ -58,19 +77,7 @@ serve(async (req) => {
 
     let mesesActualizados = 0;
     for (const mes of (mesesPendientes || [])) {
-      // Fetch quincenas for this month
-      const { data: quincenas } = await supabase
-        .from("quincenas_servicio")
-        .select("*")
-        .eq("mes_servicio_id", mes.id);
-
-      const totalMinPrec = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
-      const totalMinEmp = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
-
-      const horasPrecFinal = Math.ceil(totalMinPrec / 60);
-      const horasEmpFinal = Math.ceil(totalMinEmp / 60);
-
-      const totalCalc = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
+      // Update month totals
       const nuevoSaldo = Math.max(0, totalCalc - Number(mes.total_pagado));
       const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
@@ -84,19 +91,34 @@ serve(async (req) => {
           estado_mes: nuevoEstado,
         })
         .eq("id", mes.id);
-
       if (updateErr) throw updateErr;
+
+      // Update or create quincenas for this month
+      // Delete existing quincenas
+      await supabase.from("quincenas_servicio").delete().eq("mes_servicio_id", mes.id);
+
+      // Insert new quincenas
+      const { error: qErr } = await supabase.from("quincenas_servicio").insert([
+        { mes_servicio_id: mes.id, numero_quincena: 1, minutos_precaria: q1_precaria, minutos_empadronada: q1_empadronada },
+        { mes_servicio_id: mes.id, numero_quincena: 2, minutos_precaria: q2_precaria, minutos_empadronada: q2_empadronada },
+      ]);
+      if (qErr) throw qErr;
+
       mesesActualizados++;
     }
 
     return new Response(
-      JSON.stringify({ success: true, meses_actualizados: mesesActualizados }),
+      JSON.stringify({
+        success: true,
+        meses_actualizados: mesesActualizados,
+        total_por_mes: totalCalc,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
     console.error('[actualizar-configuracion]', error);
     return new Response(
-      JSON.stringify({ error: error.message || "No se pudo actualizar la configuración. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo actualizar la configuración." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
