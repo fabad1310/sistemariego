@@ -25,7 +25,8 @@ serve(async (req) => {
     const {
       cliente_id, anio,
       valor_hora_precaria, valor_hora_empadronada,
-      q1_precaria, q1_empadronada, q2_precaria, q2_empadronada
+      q1_precaria, q1_empadronada, q2_precaria, q2_empadronada,
+      meses_seleccionados, // NEW: array of month numbers e.g. [6,7,8] — optional, defaults to 1-12
     } = body;
 
     if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
@@ -41,14 +42,37 @@ serve(async (req) => {
       }
     }
 
+    // Validate meses_seleccionados
+    let meses: number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    if (meses_seleccionados && Array.isArray(meses_seleccionados)) {
+      if (meses_seleccionados.length === 0) throw new Error("Debe seleccionar al menos un mes");
+      for (const m of meses_seleccionados) {
+        if (typeof m !== "number" || !Number.isInteger(m) || m < 1 || m > 12) {
+          throw new Error("Mes seleccionado inválido");
+        }
+      }
+      meses = [...new Set(meses_seleccionados)].sort((a, b) => a - b);
+    }
+
     const { data: cliente, error: clienteErr } = await supabase
       .from("clientes").select("id").eq("id", cliente_id).maybeSingle();
     if (clienteErr || !cliente) throw new Error("Cliente no encontrado");
 
-    const { data: existing } = await supabase
+    // Check for existing config for this year
+    const { data: existingConfig } = await supabase
       .from("configuracion_riego_cliente").select("id")
       .eq("cliente_id", cliente_id).eq("anio", anio).maybeSingle();
-    if (existing) throw new Error(`Ya existe configuración para el año ${anio}`);
+
+    // Check for existing months that would conflict (UNIQUE constraint)
+    const { data: existingMeses } = await supabase
+      .from("meses_servicio").select("mes")
+      .eq("cliente_id", cliente_id).eq("anio", anio);
+    const existingMesesSet = new Set((existingMeses || []).map(m => m.mes));
+    const conflictingMeses = meses.filter(m => existingMesesSet.has(m));
+    if (conflictingMeses.length > 0) {
+      const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+      throw new Error(`Ya existen los meses: ${conflictingMeses.map(m => MONTH_NAMES[m-1]).join(", ")}`);
+    }
 
     // Get current admin fee
     const { data: adminConfig } = await supabase
@@ -64,37 +88,55 @@ serve(async (req) => {
     const horasPrecFinal = totalMinPrecaria > 0 ? Math.ceil(totalMinPrecaria / 60) : 0;
     const horasEmpFinal = totalMinEmpadronada > 0 ? Math.ceil(totalMinEmpadronada / 60) : 0;
     const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
-    const totalCalculado = totalRiego + montoAdmin;
+    
+    // Admin fee ONLY if base > 0
+    const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
+    const totalCalculado = totalRiego + montoAdminFinal;
 
-    // 1. Create config
-    const { data: config, error: configError } = await supabase
-      .from("configuracion_riego_cliente")
-      .insert({
-        cliente_id, anio,
-        horas_totales_mes: 0, horas_discriminadas: 0, horas_no_discriminadas: 0,
-        valor_hora_discriminada: valor_hora_precaria,
-        valor_hora_no_discriminada: valor_hora_empadronada,
-      })
-      .select().single();
-    if (configError) throw configError;
+    // 1. Create or reuse config
+    let configId: string;
+    if (existingConfig) {
+      // Update existing config with new rates
+      const { error: updateConfigErr } = await supabase
+        .from("configuracion_riego_cliente")
+        .update({
+          valor_hora_discriminada: valor_hora_precaria,
+          valor_hora_no_discriminada: valor_hora_empadronada,
+        })
+        .eq("id", existingConfig.id);
+      if (updateConfigErr) throw updateConfigErr;
+      configId = existingConfig.id;
+    } else {
+      const { data: config, error: configError } = await supabase
+        .from("configuracion_riego_cliente")
+        .insert({
+          cliente_id, anio,
+          horas_totales_mes: 0, horas_discriminadas: 0, horas_no_discriminadas: 0,
+          valor_hora_discriminada: valor_hora_precaria,
+          valor_hora_no_discriminada: valor_hora_empadronada,
+        })
+        .select().single();
+      if (configError) throw configError;
+      configId = config.id;
+    }
 
-    // 2. Create 12 months
-    const mesesInsert = Array.from({ length: 12 }, (_, i) => ({
-      cliente_id, configuracion_id: config.id, anio, mes: i + 1,
+    // 2. Create selected months only
+    const mesesInsert = meses.map(mesNum => ({
+      cliente_id, configuracion_id: configId, anio, mes: mesNum,
       total_calculado: totalCalculado,
       total_pagado: 0,
       saldo_pendiente: totalCalculado,
       estado_mes: "pendiente",
       horas_precaria_final: horasPrecFinal,
       horas_empadronada_final: horasEmpFinal,
-      monto_administrativo: montoAdmin,
+      monto_administrativo: montoAdminFinal,
     }));
 
     const { data: mesesCreados, error: mesesError } = await supabase
       .from("meses_servicio").insert(mesesInsert).select();
     if (mesesError) throw mesesError;
 
-    // 3. Create quincenas for all 12 months
+    // 3. Create quincenas for created months
     const quincenasInsert = [];
     for (const mes of mesesCreados!) {
       quincenasInsert.push(
@@ -110,11 +152,11 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        configuracion_id: config.id,
-        meses_creados: 12,
+        configuracion_id: configId,
+        meses_creados: meses.length,
         total_por_mes: totalCalculado,
-        monto_administrativo: montoAdmin,
-        total_anual: totalCalculado * 12,
+        monto_administrativo: montoAdminFinal,
+        total_anual: totalCalculado * meses.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

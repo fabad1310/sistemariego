@@ -29,7 +29,7 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { mes_servicio_id, cliente_id, monto, metodo_pago, numero_recibo, fecha_transferencia, notas } = body;
+    const { mes_servicio_id, cliente_id, monto, metodo_pago, numero_recibo, fecha_transferencia, notas, fecha_pago_real } = body;
 
     // UUID validation
     if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
@@ -42,6 +42,16 @@ serve(async (req) => {
 
     // Metodo pago validation
     if (!["efectivo", "transferencia"].includes(metodo_pago)) throw new Error("Método de pago inválido");
+
+    // fecha_pago_real validation (REQUIRED)
+    if (!fecha_pago_real || !DATE_REGEX.test(String(fecha_pago_real))) {
+      throw new Error("fecha_pago_real es obligatoria (formato YYYY-MM-DD)");
+    }
+    // Validate not future date
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const fechaReal = new Date(fecha_pago_real + "T12:00:00");
+    if (fechaReal > today) throw new Error("La fecha de pago no puede ser futura");
 
     // Conditional validations
     const safeRecibo = sanitizeString(numero_recibo, 50);
@@ -76,7 +86,7 @@ serve(async (req) => {
     const newSaldo = Math.max(0, currentSaldo - remaining);
     const newEstado = newSaldo <= 0 ? "pagado" : "pendiente";
 
-    // Insert payment record for current month
+    // Insert payment record for current month WITH fecha_pago_real
     const { error: pagoError } = await supabase.from("pagos").insert({
       cliente_id,
       mes_servicio_id,
@@ -85,6 +95,7 @@ serve(async (req) => {
       numero_recibo: metodo_pago === "efectivo" ? safeRecibo : null,
       fecha_transferencia: metodo_pago === "transferencia" ? fecha_transferencia : null,
       notas: safeNotas,
+      fecha_pago_real,
     });
     if (pagoError) throw pagoError;
 
@@ -128,6 +139,7 @@ serve(async (req) => {
           numero_recibo: null,
           fecha_transferencia: null,
           notas: `Excedente aplicado desde ${getMesName(mes.mes)}`,
+          fecha_pago_real,
         });
         if (surplusPayErr) throw surplusPayErr;
 
@@ -163,7 +175,7 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[registrar-pago]', error);
     return new Response(
-      JSON.stringify({ error: "No se pudo procesar el pago. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo procesar el pago. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -62,17 +62,24 @@ serve(async (req) => {
     const horasPrecFinal = totalMinPrecaria > 0 ? Math.ceil(totalMinPrecaria / 60) : 0;
     const horasEmpFinal = totalMinEmpadronada > 0 ? Math.ceil(totalMinEmpadronada / 60) : 0;
     const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
-    const totalCalc = totalRiego + montoAdmin;
+    
+    // Admin fee ONLY if base > 0
+    const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
+    const totalCalc = totalRiego + montoAdminFinal;
 
-    const { data: mesesPendientes, error: mesesErr } = await supabase
+    // Update ALL non-suspended months (including paid) — recalculate everything
+    const { data: mesesToUpdate, error: mesesErr } = await supabase
       .from("meses_servicio")
       .select("*")
       .eq("configuracion_id", configuracion_id)
-      .eq("estado_mes", "pendiente");
+      .neq("estado_servicio", "suspendido");
     if (mesesErr) throw mesesErr;
 
     let mesesActualizados = 0;
-    for (const mes of (mesesPendientes || [])) {
+    for (const mes of (mesesToUpdate || [])) {
+      // Skip months with override active
+      if (mes.usa_override) continue;
+
       const nuevoSaldo = Math.max(0, totalCalc - Number(mes.total_pagado));
       const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
@@ -84,7 +91,7 @@ serve(async (req) => {
           total_calculado: totalCalc,
           saldo_pendiente: nuevoSaldo,
           estado_mes: nuevoEstado,
-          monto_administrativo: montoAdmin,
+          monto_administrativo: montoAdminFinal,
         })
         .eq("id", mes.id);
       if (updateErr) throw updateErr;

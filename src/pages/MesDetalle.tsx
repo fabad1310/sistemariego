@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { ArrowLeft, CreditCard, DollarSign, PauseCircle, PlayCircle, MessageSquare, ImagePlus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ArrowLeft, CreditCard, DollarSign, PauseCircle, PlayCircle, MessageSquare, ImagePlus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -29,15 +31,17 @@ export default function MesDetalle() {
     numero_recibo: "",
     fecha_transferencia: "",
     notas: "",
+    fecha_pago_real: new Date().toISOString().split("T")[0], // NEW: defaults to today
   });
 
-  // Quincena forms - one for each quincena (only minutes)
   const [q1Form, setQ1Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
   const [q2Form, setQ2Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
-
-  // Observation form
   const [obsText, setObsText] = useState("");
   const [obsFile, setObsFile] = useState<File | null>(null);
+
+  // Override state
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideValue, setOverrideValue] = useState("");
 
   const { data: mes } = useQuery({
     queryKey: ["mes_servicio", mesId],
@@ -61,7 +65,7 @@ export default function MesDetalle() {
   const { data: pagos } = useQuery({
     queryKey: ["pagos", mesId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("pagos").select("*").eq("mes_servicio_id", mesId!).order("fecha_registro", { ascending: false });
+      const { data, error } = await supabase.from("pagos").select("*").eq("mes_servicio_id", mesId!).order("fecha_pago_real", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -85,11 +89,9 @@ export default function MesDetalle() {
     },
   });
 
-  // Load quincena data into forms when data arrives
   const q1Data = quincenas?.find((q: any) => q.numero_quincena === 1);
   const q2Data = quincenas?.find((q: any) => q.numero_quincena === 2);
 
-  // Real-time calculation preview
   const calcPreview = useMemo(() => {
     const q1mp = Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0);
     const q1me = Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0);
@@ -98,20 +100,21 @@ export default function MesDetalle() {
 
     const totalMinPrec = q1mp + q2mp;
     const totalMinEmp = q1me + q2me;
-
     const horasDecPrec = totalMinPrec / 60;
     const horasDecEmp = totalMinEmp / 60;
-
-    const horasFinalPrec = Math.ceil(horasDecPrec);
-    const horasFinalEmp = Math.ceil(horasDecEmp);
+    const horasFinalPrec = totalMinPrec > 0 ? Math.ceil(horasDecPrec) : 0;
+    const horasFinalEmp = totalMinEmp > 0 ? Math.ceil(horasDecEmp) : 0;
 
     const valorHoraPrec = Number(config?.valor_hora_discriminada || 0);
     const valorHoraEmp = Number(config?.valor_hora_no_discriminada || 0);
 
     const totalPrec = horasFinalPrec * valorHoraPrec;
     const totalEmp = horasFinalEmp * valorHoraEmp;
-    const montoAdmin = Number((mes as any)?.monto_administrativo || 0);
-    const totalMensual = totalPrec + totalEmp + montoAdmin;
+    const totalRiego = totalPrec + totalEmp;
+    // Admin fee only if base > 0
+    const montoAdminRaw = Number((mes as any)?.monto_administrativo || 0);
+    const montoAdmin = totalRiego > 0 ? montoAdminRaw : 0;
+    const totalMensual = totalRiego + montoAdmin;
 
     return {
       totalMinPrec, totalMinEmp,
@@ -120,7 +123,7 @@ export default function MesDetalle() {
       valorHoraPrec, valorHoraEmp,
       totalPrec, totalEmp, montoAdmin, totalMensual,
     };
-  }, [q1Form, q2Form, q1Data, q2Data, config]);
+  }, [q1Form, q2Form, q1Data, q2Data, config, mes]);
 
   const pagoMutation = useMutation({
     mutationFn: async () => {
@@ -128,6 +131,7 @@ export default function MesDetalle() {
       if (monto <= 0) throw new Error("El monto debe ser mayor a 0");
       if (pagoForm.metodo_pago === "efectivo" && !pagoForm.numero_recibo) throw new Error("Número de recibo requerido");
       if (pagoForm.metodo_pago === "transferencia" && !pagoForm.fecha_transferencia) throw new Error("Fecha de transferencia requerida");
+      if (!pagoForm.fecha_pago_real) throw new Error("Fecha de pago real requerida");
 
       const res = await supabase.functions.invoke("registrar-pago", {
         body: {
@@ -136,6 +140,7 @@ export default function MesDetalle() {
           numero_recibo: pagoForm.metodo_pago === "efectivo" ? pagoForm.numero_recibo : null,
           fecha_transferencia: pagoForm.metodo_pago === "transferencia" ? pagoForm.fecha_transferencia : null,
           notas: pagoForm.notas || null,
+          fecha_pago_real: pagoForm.fecha_pago_real,
         },
       });
       if (res.error) throw res.error;
@@ -150,7 +155,7 @@ export default function MesDetalle() {
         ? `Pago registrado 💰 Excedente de $${data.excedente_aplicado} aplicado a meses siguientes`
         : "Pago registrado exitosamente 💰";
       toast.success(msg);
-      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "" });
+      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "", fecha_pago_real: new Date().toISOString().split("T")[0] });
     },
     onError: (err: any) => toast.error(err.message || "Error al registrar pago"),
   });
@@ -173,7 +178,6 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error"),
   });
 
-  // Save a single quincena
   const saveQuincena = useMutation({
     mutationFn: async (params: { numero: 1 | 2; minutos_precaria: number; minutos_empadronada: number }) => {
       const res = await supabase.functions.invoke("guardar-quincena", {
@@ -196,7 +200,38 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al guardar quincena"),
   });
 
-  // Observation mutation
+  // Override mutation
+  const overrideMutation = useMutation({
+    mutationFn: async (params: { usa_override: boolean; monto_override?: number }) => {
+      const updateData: any = { usa_override: params.usa_override };
+      if (params.usa_override && params.monto_override != null) {
+        updateData.monto_override = params.monto_override;
+        updateData.total_calculado = params.monto_override;
+        updateData.saldo_pendiente = Math.max(0, params.monto_override - Number(mes?.total_pagado || 0));
+        updateData.estado_mes = updateData.saldo_pendiente <= 0 ? "pagado" : "pendiente";
+      } else if (!params.usa_override) {
+        // Restore calculated value — need to recalculate from quincenas
+        const totalRiego = (Number(mes?.horas_precaria_final || 0) * Number(config?.valor_hora_discriminada || 0)) +
+          (Number(mes?.horas_empadronada_final || 0) * Number(config?.valor_hora_no_discriminada || 0));
+        const montoAdmin = totalRiego > 0 ? Number((mes as any)?.monto_administrativo || 0) : 0;
+        const totalCalc = totalRiego + montoAdmin;
+        updateData.total_calculado = totalCalc;
+        updateData.saldo_pendiente = Math.max(0, totalCalc - Number(mes?.total_pagado || 0));
+        updateData.estado_mes = updateData.saldo_pendiente <= 0 ? "pagado" : "pendiente";
+        updateData.monto_override = null;
+      }
+      const { error } = await supabase.from("meses_servicio").update(updateData).eq("id", mesId!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
+      toast.success("Override actualizado ✅");
+      setOverrideOpen(false);
+    },
+    onError: (err: any) => toast.error(err.message || "Error al aplicar override"),
+  });
+
   const obsMutation = useMutation({
     mutationFn: async () => {
       let imagen_url: string | null = null;
@@ -223,19 +258,13 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al agregar observación"),
   });
 
-  const loadQ1 = () => {
-    if (q1Data) setQ1Form({ minutos_precaria: String(q1Data.minutos_precaria), minutos_empadronada: String(q1Data.minutos_empadronada) });
-  };
-  const loadQ2 = () => {
-    if (q2Data) setQ2Form({ minutos_precaria: String(q2Data.minutos_precaria), minutos_empadronada: String(q2Data.minutos_empadronada) });
-  };
-
   const saldo = Number(mes?.saldo_pendiente ?? 0);
   const totalCalc = Number(mes?.total_calculado ?? 0);
   const totalPagado = Number(mes?.total_pagado ?? 0);
   const progreso = totalCalc > 0 ? (totalPagado / totalCalc) * 100 : 0;
   const pagado = mes?.estado_mes === "pagado";
   const suspendido = (mes as any)?.estado_servicio === "suspendido";
+  const usaOverride = (mes as any)?.usa_override === true;
 
   return (
     <div>
@@ -257,8 +286,61 @@ export default function MesDetalle() {
             ) : (
               <Badge variant="destructive" className="ml-2 text-[10px]">🔴 Pendiente</Badge>
             )}
+            {usaOverride && (
+              <Badge variant="secondary" className="ml-2 text-[10px] bg-warning/20 text-warning-foreground">⚡ Override</Badge>
+            )}
           </p>
         </div>
+
+        {/* Override button */}
+        {!suspendido && (
+          <Dialog open={overrideOpen} onOpenChange={(open) => {
+            setOverrideOpen(open);
+            if (open) setOverrideValue(String((mes as any)?.monto_override || totalCalc));
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Pencil className="h-4 w-4 mr-2" /> {usaOverride ? "Editar Override" : "Monto Manual"}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>💰 Override de Monto Manual</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Al activar el override, el monto manual reemplaza el cálculo automático <strong>solo para este mes</strong>. El cálculo original se conserva.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={usaOverride}
+                    onCheckedChange={(checked) => {
+                      if (!checked) {
+                        overrideMutation.mutate({ usa_override: false });
+                      }
+                    }}
+                  />
+                  <Label>{usaOverride ? "Override activo" : "Override desactivado"}</Label>
+                </div>
+                <div>
+                  <Label>Monto Manual ($)</Label>
+                  <Input type="number" min="0" step="0.01" value={overrideValue} onChange={(e) => setOverrideValue(e.target.value)} />
+                </div>
+                <div className="p-3 rounded-lg bg-muted text-sm">
+                  <p>📊 Cálculo automático: <strong>${calcPreview.totalMensual.toLocaleString()}</strong></p>
+                  <p>💰 Monto manual: <strong>${(Number(overrideValue) || 0).toLocaleString()}</strong></p>
+                </div>
+                <Button className="w-full" onClick={() => {
+                  const val = Number(overrideValue);
+                  if (!Number.isFinite(val) || val < 0) { toast.error("Valor inválido"); return; }
+                  overrideMutation.mutate({ usa_override: true, monto_override: val });
+                }} disabled={overrideMutation.isPending}>
+                  {overrideMutation.isPending ? "Aplicando..." : "Aplicar Override"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {!suspendido && !pagado && (
           <AlertDialog>
@@ -298,7 +380,7 @@ export default function MesDetalle() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
-          {/* Quincenas - REBUILT: Only minutes, both quincenas visible */}
+          {/* Quincenas - editable even if paid */}
           {!suspendido && (
             <Card>
               <CardHeader>
@@ -317,7 +399,6 @@ export default function MesDetalle() {
                       <Input type="number" min="0" step="1" placeholder="0"
                         value={q1Form.minutos_precaria || (q1Data ? String(q1Data.minutos_precaria) : "")}
                         onChange={(e) => setQ1Form(p => ({ ...p, minutos_precaria: e.target.value }))}
-                        disabled={pagado}
                       />
                     </div>
                     <div>
@@ -325,19 +406,16 @@ export default function MesDetalle() {
                       <Input type="number" min="0" step="1" placeholder="0"
                         value={q1Form.minutos_empadronada || (q1Data ? String(q1Data.minutos_empadronada) : "")}
                         onChange={(e) => setQ1Form(p => ({ ...p, minutos_empadronada: e.target.value }))}
-                        disabled={pagado}
                       />
                     </div>
                   </div>
-                  {!pagado && (
-                    <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
-                      numero: 1,
-                      minutos_precaria: Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0),
-                      minutos_empadronada: Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0),
-                    })} disabled={saveQuincena.isPending}>
-                      {saveQuincena.isPending ? "Guardando..." : "Guardar Q1"}
-                    </Button>
-                  )}
+                  <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
+                    numero: 1,
+                    minutos_precaria: Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0),
+                    minutos_empadronada: Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0),
+                  })} disabled={saveQuincena.isPending}>
+                    {saveQuincena.isPending ? "Guardando..." : "Guardar Q1"}
+                  </Button>
                 </div>
 
                 {/* Quincena 2 */}
@@ -352,7 +430,6 @@ export default function MesDetalle() {
                       <Input type="number" min="0" step="1" placeholder="0"
                         value={q2Form.minutos_precaria || (q2Data ? String(q2Data.minutos_precaria) : "")}
                         onChange={(e) => setQ2Form(p => ({ ...p, minutos_precaria: e.target.value }))}
-                        disabled={pagado}
                       />
                     </div>
                     <div>
@@ -360,31 +437,35 @@ export default function MesDetalle() {
                       <Input type="number" min="0" step="1" placeholder="0"
                         value={q2Form.minutos_empadronada || (q2Data ? String(q2Data.minutos_empadronada) : "")}
                         onChange={(e) => setQ2Form(p => ({ ...p, minutos_empadronada: e.target.value }))}
-                        disabled={pagado}
                       />
                     </div>
                   </div>
-                  {!pagado && (
-                    <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
-                      numero: 2,
-                      minutos_precaria: Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0),
-                      minutos_empadronada: Number(q2Form.minutos_empadronada || q2Data?.minutos_empadronada || 0),
-                    })} disabled={saveQuincena.isPending}>
-                      {saveQuincena.isPending ? "Guardando..." : "Guardar Q2"}
-                    </Button>
-                  )}
+                  <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
+                    numero: 2,
+                    minutos_precaria: Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0),
+                    minutos_empadronada: Number(q2Form.minutos_empadronada || q2Data?.minutos_empadronada || 0),
+                  })} disabled={saveQuincena.isPending}>
+                    {saveQuincena.isPending ? "Guardando..." : "Guardar Q2"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Calculation Breakdown - REBUILT: Shows full formula */}
+          {/* Calculation Breakdown */}
           {config && !suspendido && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">🧮 Motor de Cálculo (Fórmula)</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {usaOverride && (
+                  <div className="p-3 rounded bg-warning/10 border border-warning/30 space-y-1">
+                    <p className="font-medium">⚡ Override Activo</p>
+                    <p>Monto manual: <strong>${Number((mes as any)?.monto_override || 0).toLocaleString()}</strong></p>
+                    <p className="text-xs text-muted-foreground">El cálculo automático se muestra debajo como referencia.</p>
+                  </div>
+                )}
                 <div className="p-3 rounded bg-muted/50 space-y-1">
                   <p className="font-medium">📊 Precaria</p>
                   <p>Q1: {Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0)} min + Q2: {Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0)} min = <strong>{calcPreview.totalMinPrec} min</strong></p>
@@ -404,11 +485,16 @@ export default function MesDetalle() {
                     <p><strong>${calcPreview.montoAdmin.toLocaleString()}</strong></p>
                   </div>
                 )}
+                {calcPreview.montoAdmin === 0 && (calcPreview.totalPrec + calcPreview.totalEmp) === 0 && (
+                  <div className="p-3 rounded bg-muted/50 space-y-1 text-muted-foreground">
+                    <p className="text-xs">📋 Admin fee: $0 (no se aplica porque el monto base es $0)</p>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-base">
-                  <span>Total Mensual</span>
+                  <span>Total Mensual {usaOverride ? "(Calculado)" : ""}</span>
                   <span>${calcPreview.totalMensual.toLocaleString()}</span>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Fórmula: CEIL(total_min/60) × $/hora + Gestión Admin.</p>
+                <p className="text-[10px] text-muted-foreground">Fórmula: CEIL(total_min/60) × $/hora + Admin (si base &gt; 0)</p>
               </CardContent>
             </Card>
           )}
@@ -434,8 +520,8 @@ export default function MesDetalle() {
             </CardContent>
           </Card>
 
-          {/* Payment form */}
-          {!pagado && !suspendido && (
+          {/* Payment form - available even on paid months */}
+          {!suspendido && (
             <Card>
               <CardHeader><CardTitle className="text-base">💰 Registrar Pago</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -445,6 +531,10 @@ export default function MesDetalle() {
                   {Number(pagoForm.monto) > saldo && saldo > 0 && (
                     <p className="text-xs text-warning mt-1">⚠️ El monto excede el saldo. El excedente (${(Number(pagoForm.monto) - saldo).toLocaleString()}) se aplicará a meses siguientes.</p>
                   )}
+                </div>
+                <div>
+                  <Label>📅 Fecha en que se realizó el pago</Label>
+                  <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={new Date().toISOString().split("T")[0]} />
                 </div>
                 <div>
                   <Label>Método de Pago</Label>
@@ -526,7 +616,7 @@ export default function MesDetalle() {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(p.fecha_registro).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        📅 {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
                       </p>
                       {p.numero_recibo && <p className="text-xs text-muted-foreground">Recibo: {p.numero_recibo}</p>}
                       {p.notas && <p className="text-xs text-muted-foreground italic">{p.notas}</p>}

@@ -256,7 +256,7 @@ export default function Reportes() {
                     {pagos.slice(0, 50).map((p) => (
                       <TableRow key={p.id}>
                         <TableCell className="text-sm">
-                          {new Date(p.fecha_registro).toLocaleDateString("es-AR")}
+                          {new Date(((p as any).fecha_pago_real || p.fecha_registro) + "T12:00:00").toLocaleDateString("es-AR")}
                         </TableCell>
                         <TableCell className="font-medium">${Number(p.monto).toLocaleString()}</TableCell>
                         <TableCell>

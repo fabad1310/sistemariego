@@ -73,10 +73,13 @@ serve(async (req) => {
 
         const totalMinPrec = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
         const totalMinEmp = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
-        const horasPrecFinal = Math.ceil(totalMinPrec / 60);
-        const horasEmpFinal = Math.ceil(totalMinEmp / 60);
+        const horasPrecFinal = totalMinPrec > 0 ? Math.ceil(totalMinPrec / 60) : 0;
+        const horasEmpFinal = totalMinEmp > 0 ? Math.ceil(totalMinEmp / 60) : 0;
         const totalRiego = (horasPrecFinal * valorHoraPrec) + (horasEmpFinal * valorHoraEmp);
-        const totalCalc = totalRiego + montoAdmin;
+        
+        // Admin fee ONLY if base > 0
+        const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
+        const totalCalc = totalRiego + montoAdminFinal;
         const saldo = Math.max(0, totalCalc - totalPagado);
 
         await supabase.from("meses_servicio")
@@ -85,7 +88,7 @@ serve(async (req) => {
             horas_precaria_final: horasPrecFinal, horas_empadronada_final: horasEmpFinal,
             total_calculado: totalCalc, saldo_pendiente: saldo,
             estado_mes: saldo <= 0 ? "pagado" : "pendiente",
-            monto_administrativo: montoAdmin,
+            monto_administrativo: montoAdminFinal,
           })
           .eq("id", monthId);
       };

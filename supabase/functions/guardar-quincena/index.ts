@@ -36,7 +36,7 @@ serve(async (req) => {
     const { data: mes, error: mesErr } = await supabase
       .from("meses_servicio").select("*").eq("id", mes_servicio_id).single();
     if (mesErr || !mes) throw new Error("Mes de servicio no encontrado");
-    if (mes.estado_mes === "pagado" && mes.estado_servicio !== "suspendido") throw new Error("No se puede editar un mes ya pagado");
+    // REMOVED: restriction on editing paid months — now allowed
     if (mes.estado_servicio === "suspendido") throw new Error("No se puede editar un mes suspendido");
 
     const { error: upsertErr } = await supabase
@@ -58,12 +58,18 @@ serve(async (req) => {
     const totalMinutosPrecaria = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
     const totalMinutosEmpadronada = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
 
-    const horasPrecFinal = Math.ceil(totalMinutosPrecaria / 60);
-    const horasEmpFinal = Math.ceil(totalMinutosEmpadronada / 60);
+    const horasPrecFinal = totalMinutosPrecaria > 0 ? Math.ceil(totalMinutosPrecaria / 60) : 0;
+    const horasEmpFinal = totalMinutosEmpadronada > 0 ? Math.ceil(totalMinutosEmpadronada / 60) : 0;
 
     const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
-    const montoAdmin = Number(mes.monto_administrativo || 0);
-    const totalCalculado = totalRiego + montoAdmin;
+    
+    // Admin fee: ONLY apply if base amount > 0
+    const montoAdminGlobal = Number(mes.monto_administrativo || 0);
+    const montoAdminFinal = totalRiego > 0 ? montoAdminGlobal : 0;
+    
+    // Check if override is active
+    const usaOverride = mes.usa_override === true;
+    const totalCalculado = usaOverride ? Number(mes.monto_override || 0) : (totalRiego + montoAdminFinal);
 
     const nuevoSaldo = Math.max(0, totalCalculado - Number(mes.total_pagado));
     const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
@@ -76,6 +82,7 @@ serve(async (req) => {
         total_calculado: totalCalculado,
         saldo_pendiente: nuevoSaldo,
         estado_mes: nuevoEstado,
+        monto_administrativo: montoAdminFinal,
       })
       .eq("id", mes_servicio_id);
     if (updateErr) throw updateErr;
@@ -88,9 +95,10 @@ serve(async (req) => {
         horas_precaria_final: horasPrecFinal,
         horas_empadronada_final: horasEmpFinal,
         total_riego: totalRiego,
-        monto_administrativo: montoAdmin,
+        monto_administrativo: montoAdminFinal,
         total_mensual: totalCalculado,
         saldo_pendiente: nuevoSaldo,
+        usa_override: usaOverride,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
