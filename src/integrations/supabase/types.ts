@@ -27,7 +27,6 @@ export type Database = {
           nombre_propiedad: string | null
           nombre_regante: string | null
           telefono: string | null
-          titular_riego: string | null
           updated_at: string
         }
         Insert: {
@@ -42,7 +41,6 @@ export type Database = {
           nombre_propiedad?: string | null
           nombre_regante?: string | null
           telefono?: string | null
-          titular_riego?: string | null
           updated_at?: string
         }
         Update: {
@@ -57,7 +55,6 @@ export type Database = {
           nombre_propiedad?: string | null
           nombre_regante?: string | null
           telefono?: string | null
-          titular_riego?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -108,6 +105,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      gastos: {
+        Row: {
+          estado: string
+          fecha_pago: string
+          fecha_registro: string
+          fecha_transferencia: string | null
+          id: string
+          metodo_pago: string
+          monto: number
+          nombre_gasto: string
+          numero_recibo: string | null
+          pagado_por: string
+        }
+        Insert: {
+          estado?: string
+          fecha_pago: string
+          fecha_registro?: string
+          fecha_transferencia?: string | null
+          id?: string
+          metodo_pago: string
+          monto: number
+          nombre_gasto: string
+          numero_recibo?: string | null
+          pagado_por: string
+        }
+        Update: {
+          estado?: string
+          fecha_pago?: string
+          fecha_registro?: string
+          fecha_transferencia?: string | null
+          id?: string
+          metodo_pago?: string
+          monto?: number
+          nombre_gasto?: string
+          numero_recibo?: string | null
+          pagado_por?: string
+        }
+        Relationships: []
       }
       meses_servicio: {
         Row: {
@@ -162,6 +198,38 @@ export type Database = {
             columns: ["configuracion_id"]
             isOneToOne: false
             referencedRelation: "configuracion_riego_cliente"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      observaciones_gasto: {
+        Row: {
+          fecha_creacion: string
+          gasto_id: string
+          id: string
+          imagen_url: string | null
+          texto: string | null
+        }
+        Insert: {
+          fecha_creacion?: string
+          gasto_id: string
+          id?: string
+          imagen_url?: string | null
+          texto?: string | null
+        }
+        Update: {
+          fecha_creacion?: string
+          gasto_id?: string
+          id?: string
+          imagen_url?: string | null
+          texto?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "observaciones_gasto_gasto_id_fkey"
+            columns: ["gasto_id"]
+            isOneToOne: false
+            referencedRelation: "gastos"
             referencedColumns: ["id"]
           },
         ]

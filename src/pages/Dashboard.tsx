@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, AlertTriangle, TrendingUp, Banknote } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Banknote, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useNavigate } from "react-router-dom";
@@ -39,6 +39,19 @@ export default function Dashboard() {
     },
   });
 
+  // Fetch all confirmed gastos
+  const { data: gastos } = useQuery({
+    queryKey: ["gastos_dashboard"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("gastos")
+        .select("monto, estado, fecha_pago")
+        .eq("estado", "confirmado");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
 
   // Only months up to current, active service, with debt
@@ -47,6 +60,10 @@ export default function Dashboard() {
   const totalDeuda = mesesHastaActual
     .filter((m) => Number(m.saldo_pendiente) > 0)
     .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+
+  // Total gastos confirmados
+  const totalGastos = gastos?.reduce((s, g) => s + Number(g.monto), 0) ?? 0;
+  const balanceCaja = totalCobrado - totalGastos;
 
   const clienteIdsConDeuda = new Set(
     mesesHastaActual.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
@@ -78,6 +95,7 @@ export default function Dashboard() {
     { label: "Clientes con Deuda", value: clientesConDeuda.length, icon: AlertTriangle, emoji: "⚠️" },
     { label: "Total Deuda Clientes", value: `$${totalDeuda.toLocaleString()}`, icon: Banknote, emoji: "🔴" },
     { label: "Total Cobrado", value: `$${totalCobrado.toLocaleString()}`, icon: TrendingUp, emoji: "💰" },
+    { label: "Balance de Caja", value: `$${balanceCaja.toLocaleString()}`, icon: Wallet, emoji: balanceCaja >= 0 ? "🟢" : "🔴" },
   ];
 
   return (
@@ -90,7 +108,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         {kpis.map((kpi, i) => (
           <motion.div key={kpi.label} custom={i} initial="hidden" animate="visible" variants={cardVariant}>
             <Card className="hover:shadow-md transition-shadow">

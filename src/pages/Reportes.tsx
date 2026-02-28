@@ -63,7 +63,6 @@ export default function Reportes() {
       ...c,
       deuda,
       mesesPendientes,
-      titular_riego: (c as any).titular_riego || "",
       nombre_dueno: (c as any).nombre_dueno || "",
       nombre_propiedad: (c as any).nombre_propiedad || "",
       nombre_regante: (c as any).nombre_regante || "",
@@ -87,11 +86,10 @@ export default function Reportes() {
     deudores.forEach((d) => {
       d.mesesPendientes.forEach((m) => {
         rows.push({
-          Cliente: `${d.nombre} ${d.apellido}`,
+          "Titular Riego": `${d.nombre} ${d.apellido}`,
           Dueño: d.nombre_dueno,
           Propiedad: d.nombre_propiedad,
           Regante: d.nombre_regante,
-          "Titular Riego": d.titular_riego,
           Mes: MONTH_FULL[m.mes - 1],
           Saldo: Number(m.saldo_pendiente),
           "Deuda Total": d.deuda,
@@ -187,7 +185,7 @@ export default function Reportes() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Cliente</TableHead>
+                      <TableHead>Titular de Riego</TableHead>
                       <TableHead>Dueño</TableHead>
                       <TableHead>Propiedad</TableHead>
                       <TableHead>Regante</TableHead>

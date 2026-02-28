@@ -25,7 +25,6 @@ const clienteSchema = z.object({
   dni: z.string().min(5, "DNI inválido"),
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
-  titular_riego: z.string().optional(),
   nombre_dueno: z.string().optional(),
   nombre_propiedad: z.string().optional(),
   nombre_regante: z.string().optional(),
@@ -44,7 +43,7 @@ export default function Clientes() {
 
   const form = useForm<ClienteForm>({
     resolver: zodResolver(clienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", titular_riego: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
   });
 
   const { data: clientes, isLoading } = useQuery({
@@ -78,7 +77,6 @@ export default function Clientes() {
         dni: values.dni,
         telefono: values.telefono || null,
         email: values.email || null,
-        titular_riego: values.titular_riego || null,
         nombre_dueno: values.nombre_dueno || null,
         nombre_propiedad: values.nombre_propiedad || null,
         nombre_regante: values.nombre_regante || null,
@@ -128,7 +126,6 @@ export default function Clientes() {
       c.nombre.toLowerCase().includes(search.toLowerCase()) ||
       c.apellido.toLowerCase().includes(search.toLowerCase()) ||
       c.dni.includes(search) ||
-      ((c as any).titular_riego || "").toLowerCase().includes(search.toLowerCase()) ||
       ((c as any).nombre_propiedad || "").toLowerCase().includes(search.toLowerCase());
     const matchEstado = filtroEstado === "todos" || c.estado === filtroEstado;
     return matchSearch && matchEstado;
@@ -222,9 +219,6 @@ export default function Clientes() {
                   )} />
                   <hr />
                   <p className="text-sm font-medium text-muted-foreground">🌾 Datos de Riego</p>
-                  <FormField control={form.control} name="titular_riego" render={({ field }) => (
-                    <FormItem><FormLabel>Titular de Riego</FormLabel><FormControl><Input placeholder="Nombre del titular" {...field} /></FormControl><FormMessage /></FormItem>
-                  )} />
                   <FormField control={form.control} name="nombre_dueno" render={({ field }) => (
                     <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input placeholder="Nombre del dueño" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
@@ -247,7 +241,7 @@ export default function Clientes() {
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por nombre, apellido, DNI, titular o propiedad..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar por nombre, apellido, DNI o propiedad..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={filtroEstado} onValueChange={setFiltroEstado}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Estado" /></SelectTrigger>
