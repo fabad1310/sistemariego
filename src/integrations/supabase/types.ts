@@ -59,6 +59,30 @@ export type Database = {
         }
         Relationships: []
       }
+      configuracion_global: {
+        Row: {
+          clave: string
+          descripcion: string | null
+          id: string
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          clave: string
+          descripcion?: string | null
+          id?: string
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          clave?: string
+          descripcion?: string | null
+          id?: string
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: []
+      }
       configuracion_riego_cliente: {
         Row: {
           anio: number
@@ -157,6 +181,7 @@ export type Database = {
           horas_precaria_final: number
           id: string
           mes: number
+          monto_administrativo: number
           saldo_pendiente: number
           total_calculado: number
           total_pagado: number
@@ -172,6 +197,7 @@ export type Database = {
           horas_precaria_final?: number
           id?: string
           mes: number
+          monto_administrativo?: number
           saldo_pendiente: number
           total_calculado: number
           total_pagado?: number
@@ -187,6 +213,7 @@ export type Database = {
           horas_precaria_final?: number
           id?: string
           mes?: number
+          monto_administrativo?: number
           saldo_pendiente?: number
           total_calculado?: number
           total_pagado?: number
