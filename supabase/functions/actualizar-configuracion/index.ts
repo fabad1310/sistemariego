@@ -76,8 +76,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
+    console.error('[actualizar-configuracion]', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: "No se pudo actualizar la configuración. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
