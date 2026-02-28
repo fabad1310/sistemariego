@@ -89,12 +89,8 @@ export default function Clientes() {
       form.reset();
       setOpen(false);
     },
-    onError: (err: any) => {
-      if (err.message?.includes("duplicate")) {
-        toast.error("Ya existe un cliente con ese DNI");
-      } else {
-        toast.error("Error al crear cliente");
-      }
+    onError: () => {
+      toast.error("Error al crear cliente");
     },
   });
 

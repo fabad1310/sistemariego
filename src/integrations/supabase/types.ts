@@ -182,9 +182,11 @@ export type Database = {
           id: string
           mes: number
           monto_administrativo: number
+          monto_override: number | null
           saldo_pendiente: number
           total_calculado: number
           total_pagado: number
+          usa_override: boolean
         }
         Insert: {
           anio: number
@@ -198,9 +200,11 @@ export type Database = {
           id?: string
           mes: number
           monto_administrativo?: number
+          monto_override?: number | null
           saldo_pendiente: number
           total_calculado: number
           total_pagado?: number
+          usa_override?: boolean
         }
         Update: {
           anio?: number
@@ -214,9 +218,11 @@ export type Database = {
           id?: string
           mes?: number
           monto_administrativo?: number
+          monto_override?: number | null
           saldo_pendiente?: number
           total_calculado?: number
           total_pagado?: number
+          usa_override?: boolean
         }
         Relationships: [
           {
@@ -305,6 +311,7 @@ export type Database = {
       pagos: {
         Row: {
           cliente_id: string
+          fecha_pago_real: string
           fecha_registro: string
           fecha_transferencia: string | null
           id: string
@@ -316,6 +323,7 @@ export type Database = {
         }
         Insert: {
           cliente_id: string
+          fecha_pago_real?: string
           fecha_registro?: string
           fecha_transferencia?: string | null
           id?: string
@@ -327,6 +335,7 @@ export type Database = {
         }
         Update: {
           cliente_id?: string
+          fecha_pago_real?: string
           fecha_registro?: string
           fecha_transferencia?: string | null
           id?: string

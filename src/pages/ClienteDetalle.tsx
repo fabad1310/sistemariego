@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Settings, CalendarDays, Pencil } from "lucide-react";
@@ -47,6 +48,9 @@ export default function ClienteDetalle() {
   const [configOpen, setConfigOpen] = useState(false);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
   const [editClienteOpen, setEditClienteOpen] = useState(false);
+
+  // Month selection for plan creation
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([1,2,3,4,5,6,7,8,9,10,11,12]);
 
   const [configForm, setConfigForm] = useState({
     valor_hora_precaria: "", valor_hora_empadronada: "",
@@ -95,11 +99,9 @@ export default function ClienteDetalle() {
   const currentConfig = configs?.find((c) => c.anio === selectedYear);
   const hasSuspendedService = meses?.some((m) => (m as any).estado_servicio === "suspendido") ?? false;
 
-  // Edit client mutation
+  // Edit client mutation - NO DNI unique check
   const editClienteMutation = useMutation({
     mutationFn: async (values: EditClienteForm) => {
-      const { data: existing } = await supabase.from("clientes").select("id").eq("dni", values.dni).neq("id", id!).maybeSingle();
-      if (existing) throw new Error("Ya existe otro cliente con ese DNI");
       const { error } = await supabase.from("clientes").update({
         nombre: values.nombre, apellido: values.apellido, dni: values.dni,
         telefono: values.telefono || null, email: values.email || null, estado: values.estado,
@@ -116,13 +118,14 @@ export default function ClienteDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al actualizar"),
   });
 
-  // Create plan mutation
+  // Create plan mutation - with selected months
   const createPlanMutation = useMutation({
     mutationFn: async () => {
       const vhp = Number(configForm.valor_hora_precaria);
       const vhe = Number(configForm.valor_hora_empadronada);
       if (vhp < 0 || vhe < 0) throw new Error("Valores inválidos");
       if (vhp === 0 && vhe === 0) throw new Error("Debe ingresar al menos un valor por hora");
+      if (selectedMonths.length === 0) throw new Error("Debe seleccionar al menos un mes");
 
       const res = await supabase.functions.invoke("crear-plan-anual", {
         body: {
@@ -132,20 +135,22 @@ export default function ClienteDetalle() {
           q1_empadronada: Number(configForm.q1_empadronada) || 0,
           q2_precaria: Number(configForm.q2_precaria) || 0,
           q2_empadronada: Number(configForm.q2_empadronada) || 0,
+          meses_seleccionados: selectedMonths,
         },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["configuraciones", id] });
       queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
-      toast.success("Plan anual creado con todos los meses y quincenas 🌱");
+      toast.success(`Plan creado con ${data?.meses_creados} meses 🌱`);
       setConfigOpen(false);
       setConfigForm({ valor_hora_precaria: "", valor_hora_empadronada: "", ...defaultQuincenaFields });
+      setSelectedMonths([1,2,3,4,5,6,7,8,9,10,11,12]);
     },
-    onError: (err: any) => toast.error(err.message || "Error al crear plan anual"),
+    onError: (err: any) => toast.error(err.message || "Error al crear plan"),
   });
 
   // Edit config mutation
@@ -173,7 +178,7 @@ export default function ClienteDetalle() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["configuraciones", id] });
       queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
-      toast.success(`Configuración actualizada. ${data?.meses_actualizados ?? 0} meses pendientes recalculados ✅`);
+      toast.success(`Configuración actualizada. ${data?.meses_actualizados ?? 0} meses recalculados ✅`);
       setEditConfigOpen(false);
     },
     onError: (err: any) => toast.error(err.message || "Error al actualizar configuración"),
@@ -184,6 +189,7 @@ export default function ClienteDetalle() {
   const saldoPendiente = totalAnio - totalPagado;
   const progreso = totalAnio > 0 ? (totalPagado / totalAnio) * 100 : 0;
   const configExiste = configs?.some((c) => c.anio === selectedYear);
+  const existingMeses = new Set(meses?.map(m => m.mes) ?? []);
 
   const handleOpenEditCliente = () => {
     if (cliente) {
@@ -208,7 +214,6 @@ export default function ClienteDetalle() {
     setEditConfigOpen(true);
   };
 
-  // Fetch global admin fee
   const { data: configGlobal } = useQuery({
     queryKey: ["configuracion_global"],
     queryFn: async () => {
@@ -219,7 +224,6 @@ export default function ClienteDetalle() {
   });
   const montoAdmin = Number(configGlobal?.find((c: any) => c.clave === "monto_administrativo")?.valor ?? 0);
 
-  // Helper to render calculation preview
   const renderCalcPreview = (form: typeof configForm) => {
     const vhp = Number(form.valor_hora_precaria) || 0;
     const vhe = Number(form.valor_hora_empadronada) || 0;
@@ -232,30 +236,34 @@ export default function ClienteDetalle() {
     const horasP = totalMinP > 0 ? Math.ceil(totalMinP / 60) : 0;
     const horasE = totalMinE > 0 ? Math.ceil(totalMinE / 60) : 0;
     const totalRiego = (horasP * vhp) + (horasE * vhe);
-    const totalMes = totalRiego + montoAdmin;
-    const totalAnual = totalMes * 12;
+    // Admin fee only if base > 0
+    const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
+    const totalMes = totalRiego + montoAdminFinal;
+    const totalAnual = totalMes * selectedMonths.length;
 
-    if (totalMinP === 0 && totalMinE === 0 && montoAdmin === 0) return null;
+    if (totalMinP === 0 && totalMinE === 0 && montoAdminFinal === 0) return null;
 
     return (
       <div className="bg-muted p-3 rounded-lg text-sm space-y-1">
-        <p className="font-semibold text-xs text-muted-foreground">📊 Cálculo por mes (se aplica a los 12 meses):</p>
+        <p className="font-semibold text-xs text-muted-foreground">📊 Cálculo por mes ({selectedMonths.length} meses seleccionados):</p>
         {totalMinP > 0 && (
           <p>💧 Precaria: {q1p} + {q2p} = {totalMinP} min → <strong>{horasP}h</strong> × ${vhp.toLocaleString()} = <strong>${(horasP * vhp).toLocaleString()}</strong></p>
         )}
         {totalMinE > 0 && (
           <p>💧 Empadronada: {q1e} + {q2e} = {totalMinE} min → <strong>{horasE}h</strong> × ${vhe.toLocaleString()} = <strong>${(horasE * vhe).toLocaleString()}</strong></p>
         )}
-        {montoAdmin > 0 && (
-          <p>📋 Gestión Administrativa: <strong>${montoAdmin.toLocaleString()}</strong></p>
+        {montoAdminFinal > 0 && (
+          <p>📋 Gestión Administrativa: <strong>${montoAdminFinal.toLocaleString()}</strong></p>
+        )}
+        {totalRiego === 0 && montoAdmin > 0 && (
+          <p className="text-xs text-muted-foreground">📋 Admin fee: $0 (no se aplica porque el monto base es $0)</p>
         )}
         <hr className="border-border" />
-        <p className="font-bold">Total por mes: ${totalMes.toLocaleString()} | Total anual: ${totalAnual.toLocaleString()}</p>
+        <p className="font-bold">Total por mes: ${totalMes.toLocaleString()} | Total período: ${totalAnual.toLocaleString()}</p>
       </div>
     );
   };
 
-  // Helper to render quincena inputs
   const renderQuincenaInputs = (form: typeof configForm, setForm: typeof setConfigForm) => (
     <>
       <div className="grid grid-cols-2 gap-4">
@@ -296,6 +304,14 @@ export default function ClienteDetalle() {
       </div>
     </>
   );
+
+  const toggleMonth = (month: number) => {
+    setSelectedMonths(prev =>
+      prev.includes(month)
+        ? prev.filter(m => m !== month)
+        : [...prev, month].sort((a, b) => a - b)
+    );
+  };
 
   return (
     <div>
@@ -400,45 +416,77 @@ export default function ClienteDetalle() {
           </SelectContent>
         </Select>
 
-        {!configExiste && (
-          <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Settings className="h-4 w-4 mr-2" /> Crear Plan Anual {selectedYear}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>⚙️ Plan Anual — {selectedYear}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Ingrese las tarifas y los minutos por quincena. Se aplicarán <strong>iguales a los 12 meses</strong> del año.
-                </p>
+        {/* Create plan - available if there are months to add */}
+        <Dialog open={configOpen} onOpenChange={(open) => {
+          setConfigOpen(open);
+          if (open) {
+            // Pre-select only months that don't exist yet
+            const available = [1,2,3,4,5,6,7,8,9,10,11,12].filter(m => !existingMeses.has(m));
+            setSelectedMonths(available);
+          }
+        }}>
+          <DialogTrigger asChild>
+            <Button variant="outline" disabled={existingMeses.size >= 12}>
+              <Settings className="h-4 w-4 mr-2" /> {configExiste ? "Agregar Meses" : "Crear Plan"} {selectedYear}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>⚙️ Plan — {selectedYear}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Seleccione los meses a crear e ingrese tarifas y minutos por quincena.
+              </p>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>$/Hora Precaria</Label>
-                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>$/Hora Empadronada</Label>
-                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
-                  </div>
+              {/* Month selector */}
+              <div>
+                <Label className="text-sm font-medium">📅 Meses a crear</Label>
+                <div className="grid grid-cols-4 gap-2 mt-2">
+                  {MONTH_NAMES.map((name, i) => {
+                    const mesNum = i + 1;
+                    const exists = existingMeses.has(mesNum);
+                    return (
+                      <div key={mesNum} className={`flex items-center gap-2 p-2 rounded border ${exists ? "bg-muted/50 opacity-50" : ""}`}>
+                        <Checkbox
+                          checked={selectedMonths.includes(mesNum)}
+                          onCheckedChange={() => !exists && toggleMonth(mesNum)}
+                          disabled={exists}
+                        />
+                        <span className="text-xs">{name}</span>
+                        {exists && <Badge variant="outline" className="text-[8px] ml-auto">✅</Badge>}
+                      </div>
+                    );
+                  })}
                 </div>
-
-                <hr className="border-border" />
-                <p className="text-sm font-medium">📅 Minutos por Quincena (para todos los meses)</p>
-                {renderQuincenaInputs(configForm, setConfigForm)}
-                {renderCalcPreview(configForm)}
-
-                <Button className="w-full" onClick={() => createPlanMutation.mutate()} disabled={createPlanMutation.isPending}>
-                  {createPlanMutation.isPending ? "Creando..." : "Crear Plan Anual y Generar 12 Meses"}
-                </Button>
+                <div className="flex gap-2 mt-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSelectedMonths([1,2,3,4,5,6,7,8,9,10,11,12].filter(m => !existingMeses.has(m)))}>Todos</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSelectedMonths([])}>Ninguno</Button>
+                </div>
               </div>
-            </DialogContent>
-          </Dialog>
-        )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>$/Hora Precaria</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>$/Hora Empadronada</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
+                </div>
+              </div>
+
+              <hr className="border-border" />
+              <p className="text-sm font-medium">📅 Minutos por Quincena (para los meses seleccionados)</p>
+              {renderQuincenaInputs(configForm, setConfigForm)}
+              {renderCalcPreview(configForm)}
+
+              <Button className="w-full" onClick={() => createPlanMutation.mutate()} disabled={createPlanMutation.isPending || selectedMonths.length === 0}>
+                {createPlanMutation.isPending ? "Creando..." : `Crear ${selectedMonths.length} Meses`}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {configExiste && (
           <Button variant="outline" onClick={handleOpenEditConfig}>
@@ -455,7 +503,7 @@ export default function ClienteDetalle() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-sm">
-              ⚠️ Solo se actualizarán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
+              ⚠️ Se actualizarán todos los meses no suspendidos (incluidos los pagados se recalcularán). Los meses con override activo no se modificarán.
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -469,19 +517,19 @@ export default function ClienteDetalle() {
             </div>
 
             <hr className="border-border" />
-            <p className="text-sm font-medium">📅 Nuevos Minutos por Quincena (para meses pendientes)</p>
+            <p className="text-sm font-medium">📅 Nuevos Minutos por Quincena</p>
             {renderQuincenaInputs(editConfigForm, setEditConfigForm)}
             {renderCalcPreview(editConfigForm)}
 
             <Button className="w-full" onClick={() => editConfigMutation.mutate()} disabled={editConfigMutation.isPending}>
-              {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración y Meses Pendientes"}
+              {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración y Recalcular"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Year Summary */}
-      {configExiste && (
+      {meses && meses.length > 0 && (
         <Card className="mb-6">
           <CardContent className="p-4">
             <div className="grid grid-cols-3 gap-4 text-center mb-3">
@@ -515,14 +563,15 @@ export default function ClienteDetalle() {
       {/* Monthly grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {meses?.map((m, i) => {
-          const pagado = m.estado_mes === "pagado";
-          const suspendido = (m as any).estado_servicio === "suspendido";
+          const esPagado = m.estado_mes === "pagado";
+          const esSuspendido = (m as any).estado_servicio === "suspendido";
+          const tieneOverride = (m as any).usa_override === true;
           return (
             <motion.div key={m.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
               <Card
                 className={`cursor-pointer hover:shadow-md transition-all border-2 ${
-                  suspendido ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
-                    : pagado ? "border-success/40 bg-success/5"
+                  esSuspendido ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
+                    : esPagado ? "border-success/40 bg-success/5"
                     : "border-destructive/20 bg-destructive/5"
                 }`}
                 onClick={() => navigate(`/clientes/${id}/mes/${m.id}`)}
@@ -530,23 +579,21 @@ export default function ClienteDetalle() {
                 <CardContent className="p-3 text-center">
                   <p className="text-xs font-medium text-muted-foreground">{MONTH_NAMES[m.mes - 1]}</p>
                   <p className="text-sm font-bold mt-1">
-                    {suspendido ? "⏸" : pagado ? "🟢" : "🔴"}
+                    {esSuspendido ? "⏸" : esPagado ? "🟢" : "🔴"}
+                    {tieneOverride && " ⚡"}
                   </p>
                   <p className="text-xs mt-1">${Number(m.total_calculado).toLocaleString()}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {suspendido ? "Suspendido" : `Pagado: $${Number(m.total_pagado).toLocaleString()}`}
+                    {esSuspendido ? "Suspendido" : `Pagado: $${Number(m.total_pagado).toLocaleString()}`}
                   </p>
                 </CardContent>
               </Card>
             </motion.div>
           );
         })}
-        {(!meses || meses.length === 0) && configExiste && (
-          <div className="col-span-full text-center py-8 text-muted-foreground">Generando meses...</div>
-        )}
-        {!configExiste && (
+        {(!meses || meses.length === 0) && !configExiste && (
           <div className="col-span-full text-center py-8 text-muted-foreground">
-            No hay configuración para {selectedYear}. Crea una para generar los 12 meses.
+            No hay meses para {selectedYear}. Crea un plan para generar meses.
           </div>
         )}
       </div>

@@ -40,7 +40,7 @@ serve(async (req) => {
     if (clave === "monto_administrativo") {
       const { data: mesesPendientes, error: mesesErr } = await supabase
         .from("meses_servicio")
-        .select("id, total_calculado, total_pagado, monto_administrativo")
+        .select("id, total_calculado, total_pagado, monto_administrativo, horas_precaria_final, horas_empadronada_final, configuracion_id, usa_override")
         .eq("estado_mes", "pendiente")
         .neq("estado_servicio", "suspendido");
 
@@ -48,15 +48,22 @@ serve(async (req) => {
 
       let mesesActualizados = 0;
       for (const mes of (mesesPendientes || [])) {
+        // Skip months with override active
+        if (mes.usa_override) continue;
+
+        // Recalculate: get base amount without old admin fee
         const totalSinAdmin = Number(mes.total_calculado) - Number(mes.monto_administrativo);
-        const nuevoTotal = totalSinAdmin + valor;
+        
+        // Admin fee ONLY if base amount > 0
+        const montoAdminFinal = totalSinAdmin > 0 ? valor : 0;
+        const nuevoTotal = totalSinAdmin + montoAdminFinal;
         const nuevoSaldo = Math.max(0, nuevoTotal - Number(mes.total_pagado));
         const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
         const { error } = await supabase
           .from("meses_servicio")
           .update({
-            monto_administrativo: valor,
+            monto_administrativo: montoAdminFinal,
             total_calculado: nuevoTotal,
             saldo_pendiente: nuevoSaldo,
             estado_mes: nuevoEstado,
