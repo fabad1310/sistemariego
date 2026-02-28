@@ -6,6 +6,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_MONTO = 100000000;
+const MAX_STRING_LEN = 500;
+
+function sanitizeString(val: unknown, maxLen = MAX_STRING_LEN): string | null {
+  if (val == null || val === "") return null;
+  if (typeof val !== "string") return null;
+  return val.trim().slice(0, maxLen).replace(/<[^>]*>/g, "");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,14 +28,31 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { mes_servicio_id, cliente_id, monto, metodo_pago, numero_recibo, fecha_transferencia, notas } = await req.json();
+    const body = await req.json();
+    const { mes_servicio_id, cliente_id, monto, metodo_pago, numero_recibo, fecha_transferencia, notas } = body;
 
-    // Validations
-    if (!mes_servicio_id || !cliente_id) throw new Error("mes_servicio_id y cliente_id son requeridos");
-    if (!monto || monto <= 0) throw new Error("El monto debe ser mayor a 0");
+    // UUID validation
+    if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
+    if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
+
+    // Monto validation
+    if (typeof monto !== "number" || !Number.isFinite(monto) || monto <= 0 || monto > MAX_MONTO) {
+      throw new Error("El monto debe ser un número positivo válido (máx 100.000.000)");
+    }
+
+    // Metodo pago validation
     if (!["efectivo", "transferencia"].includes(metodo_pago)) throw new Error("Método de pago inválido");
-    if (metodo_pago === "efectivo" && !numero_recibo) throw new Error("Número de recibo requerido para pago en efectivo");
-    if (metodo_pago === "transferencia" && !fecha_transferencia) throw new Error("Fecha de transferencia requerida");
+
+    // Conditional validations
+    const safeRecibo = sanitizeString(numero_recibo, 50);
+    if (metodo_pago === "efectivo" && !safeRecibo) throw new Error("Número de recibo requerido para pago en efectivo");
+    if (metodo_pago === "transferencia") {
+      if (!fecha_transferencia || !DATE_REGEX.test(String(fecha_transferencia))) {
+        throw new Error("Fecha de transferencia requerida y debe tener formato YYYY-MM-DD");
+      }
+    }
+
+    const safeNotas = sanitizeString(notas);
 
     // Get current month
     const { data: mes, error: mesError } = await supabase
@@ -34,6 +62,9 @@ serve(async (req) => {
       .single();
 
     if (mesError || !mes) throw new Error("Mes de servicio no encontrado");
+
+    // Verify cliente_id matches the mes
+    if (mes.cliente_id !== cliente_id) throw new Error("El cliente no corresponde al mes de servicio");
 
     let remaining = monto;
     let excedente_aplicado = 0;
@@ -51,9 +82,9 @@ serve(async (req) => {
       mes_servicio_id,
       monto: amountForThisMonth,
       metodo_pago,
-      numero_recibo: metodo_pago === "efectivo" ? numero_recibo : null,
+      numero_recibo: metodo_pago === "efectivo" ? safeRecibo : null,
       fecha_transferencia: metodo_pago === "transferencia" ? fecha_transferencia : null,
-      notas,
+      notas: safeNotas,
     });
     if (pagoError) throw pagoError;
 
@@ -89,7 +120,6 @@ serve(async (req) => {
         const nextSaldo = Number(nextMes.saldo_pendiente);
         const applyAmount = Math.min(remaining, nextSaldo);
 
-        // Insert surplus payment record
         const { error: surplusPayErr } = await supabase.from("pagos").insert({
           cliente_id,
           mes_servicio_id: nextMes.id,

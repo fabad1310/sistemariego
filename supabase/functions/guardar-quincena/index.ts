@@ -6,6 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_MINUTOS = 100000;
+const MAX_VALOR = 100000000;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,14 +21,30 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada, valor_minuto_precaria, valor_minuto_empadronada } = await req.json();
+    const body = await req.json();
+    const { mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada, valor_minuto_precaria, valor_minuto_empadronada } = body;
 
-    if (!mes_servicio_id) throw new Error("mes_servicio_id es requerido");
+    // UUID validation
+    if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
+
+    // Quincena validation
     if (![1, 2].includes(numero_quincena)) throw new Error("numero_quincena debe ser 1 o 2");
-    if (minutos_precaria < 0 || minutos_empadronada < 0) throw new Error("Los minutos no pueden ser negativos");
-    if (valor_minuto_precaria < 0 || valor_minuto_empadronada < 0) throw new Error("Los valores no pueden ser negativos");
 
-    // Verify month is not paid
+    // Numeric type and bounds validation
+    if (typeof minutos_precaria !== "number" || !Number.isFinite(minutos_precaria) || minutos_precaria < 0 || minutos_precaria > MAX_MINUTOS) {
+      throw new Error("minutos_precaria debe ser un número entre 0 y 100.000");
+    }
+    if (typeof minutos_empadronada !== "number" || !Number.isFinite(minutos_empadronada) || minutos_empadronada < 0 || minutos_empadronada > MAX_MINUTOS) {
+      throw new Error("minutos_empadronada debe ser un número entre 0 y 100.000");
+    }
+    if (typeof valor_minuto_precaria !== "number" || !Number.isFinite(valor_minuto_precaria) || valor_minuto_precaria < 0 || valor_minuto_precaria > MAX_VALOR) {
+      throw new Error("valor_minuto_precaria debe ser un número no negativo válido");
+    }
+    if (typeof valor_minuto_empadronada !== "number" || !Number.isFinite(valor_minuto_empadronada) || valor_minuto_empadronada < 0 || valor_minuto_empadronada > MAX_VALOR) {
+      throw new Error("valor_minuto_empadronada debe ser un número no negativo válido");
+    }
+
+    // Verify month exists and is editable
     const { data: mes, error: mesErr } = await supabase
       .from("meses_servicio")
       .select("*")
@@ -64,16 +84,13 @@ serve(async (req) => {
 
     if (qErr) throw qErr;
 
-    // Sum totals from all quincenas
     const totalMinutosPrecaria = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
     const totalMinutosEmpadronada = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
     
-    // Convert to hours and round up
     const totalMinutos = totalMinutosPrecaria + totalMinutosEmpadronada;
     const horasDecimal = totalMinutos / 60;
     const horasRedondeadas = Math.ceil(horasDecimal);
 
-    // Total monetary from quincenas subtotals
     const totalCalculado = (quincenas || []).reduce((s, q) => s + Number(q.subtotal_calculado), 0);
 
     const nuevoSaldo = Math.max(0, totalCalculado - Number(mes.total_pagado));
