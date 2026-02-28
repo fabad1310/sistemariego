@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, AlertTriangle, TrendingUp, Banknote, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
@@ -9,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const MONTHS_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const PIE_COLORS = ["hsl(217, 91%, 50%)", "hsl(187, 72%, 45%)", "hsl(142, 71%, 45%)", "hsl(38, 92%, 50%)"];
 
 const cardVariant = {
@@ -21,6 +24,20 @@ export default function Dashboard() {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
+  // Filter state for "Total Cobrado"
+  const [cobradoFilter, setCobradoFilter] = useState("total");
+  const [cobradoYear, setCobradoYear] = useState(currentYear);
+
+  // Fetch ALL meses_servicio (all years)
+  const { data: allMeses } = useQuery({
+    queryKey: ["meses_servicio_all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("meses_servicio").select("*");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const { data: clientes } = useQuery({
     queryKey: ["clientes"],
     queryFn: async () => {
@@ -30,16 +47,6 @@ export default function Dashboard() {
     },
   });
 
-  const { data: meses } = useQuery({
-    queryKey: ["meses_servicio", currentYear],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("meses_servicio").select("*").eq("anio", currentYear);
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch all confirmed gastos
   const { data: gastos } = useQuery({
     queryKey: ["gastos_dashboard"],
     queryFn: async () => {
@@ -54,30 +61,47 @@ export default function Dashboard() {
 
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
 
-  // Only months up to current, active service, with debt
-  const mesesHastaActual = meses?.filter((m) => m.mes <= currentMonth && (m as any).estado_servicio !== "suspendido") ?? [];
-  const totalCobrado = mesesHastaActual.reduce((s, m) => s + Number(m.total_pagado), 0);
+  // DEUDA: all months up to current date, not suspended
+  const mesesHastaActual = allMeses?.filter((m) => {
+    if (m.estado_servicio === "suspendido") return false;
+    if (m.anio < currentYear) return true;
+    if (m.anio === currentYear && m.mes <= currentMonth) return true;
+    return false;
+  }) ?? [];
+
   const totalDeuda = mesesHastaActual
     .filter((m) => Number(m.saldo_pendiente) > 0)
     .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
 
-  // Total gastos confirmados
+  // COBRADO: filtered by selector
+  const totalCobradoGlobal = allMeses?.reduce((s, m) => s + Number(m.total_pagado), 0) ?? 0;
+
+  const totalCobradoFiltered = (() => {
+    if (cobradoFilter === "total") return totalCobradoGlobal;
+    const mesNum = parseInt(cobradoFilter);
+    return allMeses
+      ?.filter((m) => m.anio === cobradoYear && m.mes === mesNum)
+      .reduce((s, m) => s + Number(m.total_pagado), 0) ?? 0;
+  })();
+
+  // BALANCE DE CAJA: ALL income - ALL expenses (real cash balance)
   const totalGastos = gastos?.reduce((s, g) => s + Number(g.monto), 0) ?? 0;
-  const balanceCaja = totalCobrado - totalGastos;
+  const balanceCaja = totalCobradoGlobal - totalGastos;
 
   const clienteIdsConDeuda = new Set(
     mesesHastaActual.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
   );
   const clientesConDeuda = clientes?.filter((c) => clienteIdsConDeuda.has(c.id)) ?? [];
 
-  // Check which clients have any suspended month
   const clienteIdsSuspendidos = new Set(
-    meses?.filter((m) => (m as any).estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
+    allMeses?.filter((m) => m.estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
   );
 
+  // Chart data for current year
+  const mesesCurrentYear = allMeses?.filter((m) => m.anio === currentYear) ?? [];
   const monthlyData = MONTHS.map((name, i) => {
     const mesNum = i + 1;
-    const mesesMes = meses?.filter((m) => m.mes === mesNum) ?? [];
+    const mesesMes = mesesCurrentYear.filter((m) => m.mes === mesNum);
     return {
       name,
       facturado: mesesMes.reduce((s, m) => s + Number(m.total_calculado), 0),
@@ -86,17 +110,16 @@ export default function Dashboard() {
   });
 
   const pieData = [
-    { name: "Cobrado", value: totalCobrado },
+    { name: "Cobrado", value: totalCobradoGlobal },
     { name: "Pendiente", value: totalDeuda },
   ];
 
-  const kpis = [
-    { label: "Clientes Activos", value: clientesActivos, icon: Users, emoji: "🌱" },
-    { label: "Clientes con Deuda", value: clientesConDeuda.length, icon: AlertTriangle, emoji: "⚠️" },
-    { label: "Total Deuda Clientes", value: `$${totalDeuda.toLocaleString()}`, icon: Banknote, emoji: "🔴" },
-    { label: "Total Cobrado", value: `$${totalCobrado.toLocaleString()}`, icon: TrendingUp, emoji: "💰" },
-    { label: "Balance de Caja", value: `$${balanceCaja.toLocaleString()}`, icon: Wallet, emoji: balanceCaja >= 0 ? "🟢" : "🔴" },
-  ];
+  // Available years from data
+  const availableYears = [...new Set(allMeses?.map((m) => m.anio) ?? [])].sort();
+
+  const cobradoLabel = cobradoFilter === "total"
+    ? "Total Cobrado"
+    : `Cobrado ${MONTHS_FULL[parseInt(cobradoFilter) - 1]} ${cobradoYear}`;
 
   return (
     <div>
@@ -104,26 +127,106 @@ export default function Dashboard() {
         <SidebarTrigger />
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego — {currentYear} (hasta {MONTHS[currentMonth - 1]})</p>
+          <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego</p>
         </div>
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        {kpis.map((kpi, i) => (
-          <motion.div key={kpi.label} custom={i} initial="hidden" animate="visible" variants={cardVariant}>
-            <Card className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.label}</CardTitle>
-                <kpi.icon className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{kpi.emoji} {kpi.value}</div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
+        {/* Clientes Activos */}
+        <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariant}>
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes Activos</CardTitle>
+              <Users className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">🌱 {clientesActivos}</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Clientes con Deuda */}
+        <motion.div custom={1} initial="hidden" animate="visible" variants={cardVariant}>
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes con Deuda</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">⚠️ {clientesConDeuda.length}</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Total Deuda - hasta la fecha */}
+        <motion.div custom={2} initial="hidden" animate="visible" variants={cardVariant}>
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deuda Clientes</CardTitle>
+              <Banknote className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">🔴 ${totalDeuda.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Hasta {MONTHS[currentMonth - 1]} {currentYear}</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Total Cobrado - with filter */}
+        <motion.div custom={3} initial="hidden" animate="visible" variants={cardVariant}>
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{cobradoLabel}</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">💰 ${totalCobradoFiltered.toLocaleString()}</div>
+              <div className="flex gap-1 mt-2">
+                <Select value={cobradoFilter} onValueChange={setCobradoFilter}>
+                  <SelectTrigger className="h-7 text-xs w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="total">Total</SelectItem>
+                    {MONTHS_FULL.map((m, i) => (
+                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {cobradoFilter !== "total" && (
+                  <Select value={String(cobradoYear)} onValueChange={(v) => setCobradoYear(Number(v))}>
+                    <SelectTrigger className="h-7 text-xs w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableYears.map((y) => (
+                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Balance de Caja - global real */}
+        <motion.div custom={4} initial="hidden" animate="visible" variants={cardVariant}>
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Balance de Caja</CardTitle>
+              <Wallet className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{balanceCaja >= 0 ? "🟢" : "🔴"} ${balanceCaja.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Ingresos totales - Gastos</p>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
 
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2">
           <CardHeader>
