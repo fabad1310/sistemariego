@@ -153,6 +153,8 @@ export type Database = {
           estado_mes: string
           estado_servicio: string
           fecha_generacion: string
+          horas_empadronada_final: number
+          horas_precaria_final: number
           id: string
           mes: number
           saldo_pendiente: number
@@ -166,6 +168,8 @@ export type Database = {
           estado_mes?: string
           estado_servicio?: string
           fecha_generacion?: string
+          horas_empadronada_final?: number
+          horas_precaria_final?: number
           id?: string
           mes: number
           saldo_pendiente: number
@@ -179,6 +183,8 @@ export type Database = {
           estado_mes?: string
           estado_servicio?: string
           fecha_generacion?: string
+          horas_empadronada_final?: number
+          horas_precaria_final?: number
           id?: string
           mes?: number
           saldo_pendiente?: number
@@ -328,9 +334,6 @@ export type Database = {
           minutos_empadronada: number
           minutos_precaria: number
           numero_quincena: number
-          subtotal_calculado: number
-          valor_minuto_empadronada: number
-          valor_minuto_precaria: number
         }
         Insert: {
           fecha_registro?: string
@@ -339,9 +342,6 @@ export type Database = {
           minutos_empadronada?: number
           minutos_precaria?: number
           numero_quincena: number
-          subtotal_calculado?: number
-          valor_minuto_empadronada?: number
-          valor_minuto_precaria?: number
         }
         Update: {
           fecha_registro?: string
@@ -350,9 +350,6 @@ export type Database = {
           minutos_empadronada?: number
           minutos_precaria?: number
           numero_quincena?: number
-          subtotal_calculado?: number
-          valor_minuto_empadronada?: number
-          valor_minuto_precaria?: number
         }
         Relationships: [
           {
