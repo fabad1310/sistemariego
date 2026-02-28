@@ -294,20 +294,20 @@ export default function MesDetalle() {
           {config && !suspendido && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">📊 Desglose del Cálculo</CardTitle>
+                <CardTitle className="text-base">📊 Desglose del Cálculo (Configuración Quincenal)</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span>Horas precaria × valor</span>
-                  <span>{Number(config.horas_discriminadas)} h × ${Number(config.valor_hora_discriminada)} = <strong>${(Number(config.horas_discriminadas) * Number(config.valor_hora_discriminada)).toLocaleString()}</strong></span>
+                  <span>Min. precaria × $/min</span>
+                  <span>{Number(config.horas_discriminadas)} min × ${Number(config.valor_hora_discriminada)} = <strong>${(Number(config.horas_discriminadas) * Number(config.valor_hora_discriminada)).toLocaleString()}</strong></span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Horas empadronada × valor</span>
-                  <span>{Number(config.horas_no_discriminadas)} h × ${Number(config.valor_hora_no_discriminada)} = <strong>${(Number(config.horas_no_discriminadas) * Number(config.valor_hora_no_discriminada)).toLocaleString()}</strong></span>
+                  <span>Min. empadronada × $/min</span>
+                  <span>{Number(config.horas_no_discriminadas)} min × ${Number(config.valor_hora_no_discriminada)} = <strong>${(Number(config.horas_no_discriminadas) * Number(config.valor_hora_no_discriminada)).toLocaleString()}</strong></span>
                 </div>
                 <hr className="my-2" />
                 <div className="flex justify-between font-bold">
-                  <span>Total mensual</span>
+                  <span>Total mensual (calculado por quincenas)</span>
                   <span>${totalCalc.toLocaleString()}</span>
                 </div>
               </CardContent>
