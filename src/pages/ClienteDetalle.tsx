@@ -28,7 +28,6 @@ const editClienteSchema = z.object({
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   estado: z.enum(["activo", "inactivo"]),
-  titular_riego: z.string().optional(),
   nombre_dueno: z.string().optional(),
   nombre_propiedad: z.string().optional(),
   nombre_regante: z.string().optional(),
@@ -59,7 +58,7 @@ export default function ClienteDetalle() {
 
   const editClienteForm = useForm<EditClienteForm>({
     resolver: zodResolver(editClienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo", titular_riego: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
   });
 
   const { data: cliente } = useQuery({
@@ -115,7 +114,6 @@ export default function ClienteDetalle() {
         telefono: values.telefono || null,
         email: values.email || null,
         estado: values.estado,
-        titular_riego: values.titular_riego || null,
         nombre_dueno: values.nombre_dueno || null,
         nombre_propiedad: values.nombre_propiedad || null,
         nombre_regante: values.nombre_regante || null,
@@ -200,7 +198,6 @@ export default function ClienteDetalle() {
         telefono: cliente.telefono || "",
         email: cliente.email || "",
         estado: cliente.estado as "activo" | "inactivo",
-        titular_riego: (cliente as any).titular_riego || "",
         nombre_dueno: (cliente as any).nombre_dueno || "",
         nombre_propiedad: (cliente as any).nombre_propiedad || "",
         nombre_regante: (cliente as any).nombre_regante || "",
@@ -235,6 +232,7 @@ export default function ClienteDetalle() {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{cliente ? `${cliente.nombre} ${cliente.apellido}` : "..."}</h1>
+            <span className="text-xs text-muted-foreground">(Titular de Riego)</span>
             {hasSuspendedService && (
               <Badge variant="secondary" className="bg-muted-foreground/20 text-sm">⏸ Servicio Suspendido</Badge>
             )}
@@ -298,9 +296,6 @@ export default function ClienteDetalle() {
               )} />
               <hr />
               <p className="text-sm font-medium text-muted-foreground">🌾 Datos de Riego</p>
-              <FormField control={editClienteForm.control} name="titular_riego" render={({ field }) => (
-                <FormItem><FormLabel>Titular de Riego</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
               <FormField control={editClienteForm.control} name="nombre_dueno" render={({ field }) => (
                 <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />

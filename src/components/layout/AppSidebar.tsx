@@ -9,12 +9,13 @@ import {
   SidebarFooter,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const navItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
   { title: "Clientes", icon: Users, path: "/clientes" },
+  { title: "Gastos", icon: Receipt, path: "/gastos" },
   { title: "Reportes", icon: FileBarChart, path: "/reportes" },
 ];
 
