@@ -8,7 +8,6 @@ const corsHeaders = {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MINUTOS = 100000;
-const MAX_VALOR = 100000000;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -22,26 +21,17 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada, valor_minuto_precaria, valor_minuto_empadronada } = body;
+    const { mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada } = body;
 
-    // UUID validation
+    // Validations
     if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
-
-    // Quincena validation
     if (![1, 2].includes(numero_quincena)) throw new Error("numero_quincena debe ser 1 o 2");
 
-    // Numeric type and bounds validation
     if (typeof minutos_precaria !== "number" || !Number.isFinite(minutos_precaria) || minutos_precaria < 0 || minutos_precaria > MAX_MINUTOS) {
       throw new Error("minutos_precaria debe ser un número entre 0 y 100.000");
     }
     if (typeof minutos_empadronada !== "number" || !Number.isFinite(minutos_empadronada) || minutos_empadronada < 0 || minutos_empadronada > MAX_MINUTOS) {
       throw new Error("minutos_empadronada debe ser un número entre 0 y 100.000");
-    }
-    if (typeof valor_minuto_precaria !== "number" || !Number.isFinite(valor_minuto_precaria) || valor_minuto_precaria < 0 || valor_minuto_precaria > MAX_VALOR) {
-      throw new Error("valor_minuto_precaria debe ser un número no negativo válido");
-    }
-    if (typeof valor_minuto_empadronada !== "number" || !Number.isFinite(valor_minuto_empadronada) || valor_minuto_empadronada < 0 || valor_minuto_empadronada > MAX_VALOR) {
-      throw new Error("valor_minuto_empadronada debe ser un número no negativo válido");
     }
 
     // Verify month exists and is editable
@@ -59,9 +49,7 @@ serve(async (req) => {
       throw new Error("No se puede editar un mes suspendido");
     }
 
-    const subtotal = (minutos_precaria * valor_minuto_precaria) + (minutos_empadronada * valor_minuto_empadronada);
-
-    // Upsert quincena
+    // Upsert quincena (only minutes, no rates)
     const { error: upsertErr } = await supabase
       .from("quincenas_servicio")
       .upsert({
@@ -69,14 +57,11 @@ serve(async (req) => {
         numero_quincena,
         minutos_precaria,
         minutos_empadronada,
-        valor_minuto_precaria,
-        valor_minuto_empadronada,
-        subtotal_calculado: subtotal,
       }, { onConflict: "mes_servicio_id,numero_quincena" });
 
     if (upsertErr) throw upsertErr;
 
-    // Now recalculate monthly total from both quincenas
+    // Fetch both quincenas for this month
     const { data: quincenas, error: qErr } = await supabase
       .from("quincenas_servicio")
       .select("*")
@@ -84,21 +69,46 @@ serve(async (req) => {
 
     if (qErr) throw qErr;
 
+    // Fetch config to get hourly rates
+    const { data: config, error: confErr } = await supabase
+      .from("configuracion_riego_cliente")
+      .select("*")
+      .eq("id", mes.configuracion_id)
+      .single();
+
+    if (confErr || !config) throw new Error("Configuración no encontrada");
+
+    const valor_hora_precaria = Number(config.valor_hora_discriminada);
+    const valor_hora_empadronada = Number(config.valor_hora_no_discriminada);
+
+    // Step 1: Sum total minutes per type across both quincenas
     const totalMinutosPrecaria = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
     const totalMinutosEmpadronada = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
-    
-    const totalMinutos = totalMinutosPrecaria + totalMinutosEmpadronada;
-    const horasDecimal = totalMinutos / 60;
-    const horasRedondeadas = Math.ceil(horasDecimal);
 
-    const totalCalculado = (quincenas || []).reduce((s, q) => s + Number(q.subtotal_calculado), 0);
+    // Step 2: Convert to decimal hours
+    const horasPrecDecimal = totalMinutosPrecaria / 60;
+    const horasEmpDecimal = totalMinutosEmpadronada / 60;
+
+    // Step 3: CEIL to integer hours (ALWAYS round up)
+    const horasPrecFinal = Math.ceil(horasPrecDecimal);
+    const horasEmpFinal = Math.ceil(horasEmpDecimal);
+
+    // Step 4: Multiply AFTER rounding
+    const totalPrecaria = horasPrecFinal * valor_hora_precaria;
+    const totalEmpadronada = horasEmpFinal * valor_hora_empadronada;
+
+    // Step 5: Total mensual
+    const totalCalculado = totalPrecaria + totalEmpadronada;
 
     const nuevoSaldo = Math.max(0, totalCalculado - Number(mes.total_pagado));
     const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
+    // Update meses_servicio with final calculated values
     const { error: updateErr } = await supabase
       .from("meses_servicio")
       .update({
+        horas_precaria_final: horasPrecFinal,
+        horas_empadronada_final: horasEmpFinal,
         total_calculado: totalCalculado,
         saldo_pendiente: nuevoSaldo,
         estado_mes: nuevoEstado,
@@ -110,10 +120,15 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        subtotal_quincena: subtotal,
+        total_minutos_precaria: totalMinutosPrecaria,
+        total_minutos_empadronada: totalMinutosEmpadronada,
+        horas_precaria_decimal: horasPrecDecimal,
+        horas_empadronada_decimal: horasEmpDecimal,
+        horas_precaria_final: horasPrecFinal,
+        horas_empadronada_final: horasEmpFinal,
+        total_precaria: totalPrecaria,
+        total_empadronada: totalEmpadronada,
         total_mensual: totalCalculado,
-        horas_decimal: horasDecimal,
-        horas_redondeadas: horasRedondeadas,
         saldo_pendiente: nuevoSaldo,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -121,7 +136,7 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[guardar-quincena]', error);
     return new Response(
-      JSON.stringify({ error: "No se pudo guardar la quincena. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo guardar la quincena. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

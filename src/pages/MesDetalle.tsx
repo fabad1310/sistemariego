@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,14 +31,9 @@ export default function MesDetalle() {
     notas: "",
   });
 
-  // Quincena form
-  const [quincenaForm, setQuincenaForm] = useState({
-    numero_quincena: 1 as 1 | 2,
-    minutos_precaria: "",
-    minutos_empadronada: "",
-    valor_minuto_precaria: "",
-    valor_minuto_empadronada: "",
-  });
+  // Quincena forms - one for each quincena (only minutes)
+  const [q1Form, setQ1Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
+  const [q2Form, setQ2Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
 
   // Observation form
   const [obsText, setObsText] = useState("");
@@ -90,6 +85,42 @@ export default function MesDetalle() {
     },
   });
 
+  // Load quincena data into forms when data arrives
+  const q1Data = quincenas?.find((q: any) => q.numero_quincena === 1);
+  const q2Data = quincenas?.find((q: any) => q.numero_quincena === 2);
+
+  // Real-time calculation preview
+  const calcPreview = useMemo(() => {
+    const q1mp = Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0);
+    const q1me = Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0);
+    const q2mp = Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0);
+    const q2me = Number(q2Form.minutos_empadronada || q2Data?.minutos_empadronada || 0);
+
+    const totalMinPrec = q1mp + q2mp;
+    const totalMinEmp = q1me + q2me;
+
+    const horasDecPrec = totalMinPrec / 60;
+    const horasDecEmp = totalMinEmp / 60;
+
+    const horasFinalPrec = Math.ceil(horasDecPrec);
+    const horasFinalEmp = Math.ceil(horasDecEmp);
+
+    const valorHoraPrec = Number(config?.valor_hora_discriminada || 0);
+    const valorHoraEmp = Number(config?.valor_hora_no_discriminada || 0);
+
+    const totalPrec = horasFinalPrec * valorHoraPrec;
+    const totalEmp = horasFinalEmp * valorHoraEmp;
+    const totalMensual = totalPrec + totalEmp;
+
+    return {
+      totalMinPrec, totalMinEmp,
+      horasDecPrec, horasDecEmp,
+      horasFinalPrec, horasFinalEmp,
+      valorHoraPrec, valorHoraEmp,
+      totalPrec, totalEmp, totalMensual,
+    };
+  }, [q1Form, q2Form, q1Data, q2Data, config]);
+
   const pagoMutation = useMutation({
     mutationFn: async () => {
       const monto = Number(pagoForm.monto);
@@ -99,9 +130,7 @@ export default function MesDetalle() {
 
       const res = await supabase.functions.invoke("registrar-pago", {
         body: {
-          mes_servicio_id: mesId,
-          cliente_id: clienteId,
-          monto,
+          mes_servicio_id: mesId, cliente_id: clienteId, monto,
           metodo_pago: pagoForm.metodo_pago,
           numero_recibo: pagoForm.metodo_pago === "efectivo" ? pagoForm.numero_recibo : null,
           fecha_transferencia: pagoForm.metodo_pago === "transferencia" ? pagoForm.fecha_transferencia : null,
@@ -125,7 +154,6 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al registrar pago"),
   });
 
-  // Suspension mutation
   const suspensionMutation = useMutation({
     mutationFn: async (accion: "suspender" | "reactivar") => {
       const res = await supabase.functions.invoke("suspender-servicio", {
@@ -144,17 +172,15 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error"),
   });
 
-  // Quincena mutation
-  const quincenaMutation = useMutation({
-    mutationFn: async () => {
+  // Save a single quincena
+  const saveQuincena = useMutation({
+    mutationFn: async (params: { numero: 1 | 2; minutos_precaria: number; minutos_empadronada: number }) => {
       const res = await supabase.functions.invoke("guardar-quincena", {
         body: {
           mes_servicio_id: mesId,
-          numero_quincena: quincenaForm.numero_quincena,
-          minutos_precaria: Number(quincenaForm.minutos_precaria) || 0,
-          minutos_empadronada: Number(quincenaForm.minutos_empadronada) || 0,
-          valor_minuto_precaria: Number(quincenaForm.valor_minuto_precaria) || 0,
-          valor_minuto_empadronada: Number(quincenaForm.valor_minuto_empadronada) || 0,
+          numero_quincena: params.numero,
+          minutos_precaria: params.minutos_precaria,
+          minutos_empadronada: params.minutos_empadronada,
         },
       });
       if (res.error) throw res.error;
@@ -164,7 +190,7 @@ export default function MesDetalle() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
       queryClient.invalidateQueries({ queryKey: ["quincenas", mesId] });
-      toast.success(`Quincena ${quincenaForm.numero_quincena} guardada. Total mensual: $${data?.total_mensual?.toLocaleString()} (${data?.horas_redondeadas}h) ✅`);
+      toast.success(`Quincena guardada ✅ Total: $${data?.total_mensual?.toLocaleString()} (Prec: ${data?.horas_precaria_final}h | Emp: ${data?.horas_empadronada_final}h)`);
     },
     onError: (err: any) => toast.error(err.message || "Error al guardar quincena"),
   });
@@ -173,7 +199,6 @@ export default function MesDetalle() {
   const obsMutation = useMutation({
     mutationFn: async () => {
       let imagen_url: string | null = null;
-
       if (obsFile) {
         const ext = obsFile.name.split('.').pop();
         const path = `${mesId}/${Date.now()}.${ext}`;
@@ -182,13 +207,9 @@ export default function MesDetalle() {
         const { data: urlData } = supabase.storage.from("observaciones").getPublicUrl(path);
         imagen_url = urlData.publicUrl;
       }
-
       if (!obsText && !imagen_url) throw new Error("Ingrese texto o imagen");
-
       const { error } = await supabase.from("observaciones_mes").insert({
-        mes_servicio_id: mesId,
-        texto: obsText || null,
-        imagen_url,
+        mes_servicio_id: mesId, texto: obsText || null, imagen_url,
       } as any);
       if (error) throw error;
     },
@@ -201,16 +222,11 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al agregar observación"),
   });
 
-  // Load quincena data into form
-  const loadQuincena = (num: 1 | 2) => {
-    const q = quincenas?.find((q: any) => q.numero_quincena === num);
-    setQuincenaForm({
-      numero_quincena: num,
-      minutos_precaria: q ? String(q.minutos_precaria) : "",
-      minutos_empadronada: q ? String(q.minutos_empadronada) : "",
-      valor_minuto_precaria: q ? String(q.valor_minuto_precaria) : "",
-      valor_minuto_empadronada: q ? String(q.valor_minuto_empadronada) : "",
-    });
+  const loadQ1 = () => {
+    if (q1Data) setQ1Form({ minutos_precaria: String(q1Data.minutos_precaria), minutos_empadronada: String(q1Data.minutos_empadronada) });
+  };
+  const loadQ2 = () => {
+    if (q2Data) setQ2Form({ minutos_precaria: String(q2Data.minutos_precaria), minutos_empadronada: String(q2Data.minutos_empadronada) });
   };
 
   const saldo = Number(mes?.saldo_pendiente ?? 0);
@@ -243,20 +259,15 @@ export default function MesDetalle() {
           </p>
         </div>
 
-        {/* Suspension controls */}
         {!suspendido && !pagado && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <PauseCircle className="h-4 w-4 mr-2" /> Suspender
-              </Button>
+              <Button variant="outline" size="sm"><PauseCircle className="h-4 w-4 mr-2" /> Suspender</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>¿Suspender servicio desde este mes?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Este mes y todos los posteriores pendientes serán marcados como suspendidos con total $0. Los meses anteriores no se modificarán.
-                </AlertDialogDescription>
+                <AlertDialogDescription>Este mes y todos los posteriores pendientes serán marcados como suspendidos con total $0.</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
@@ -268,16 +279,12 @@ export default function MesDetalle() {
         {suspendido && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <PlayCircle className="h-4 w-4 mr-2" /> Reactivar
-              </Button>
+              <Button variant="outline" size="sm"><PlayCircle className="h-4 w-4 mr-2" /> Reactivar</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>¿Reactivar servicio desde este mes?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Este mes y todos los posteriores suspendidos serán reactivados con los valores de la configuración actual.
-                </AlertDialogDescription>
+                <AlertDialogDescription>Este mes y los posteriores suspendidos serán reactivados y recalculados.</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
@@ -290,68 +297,111 @@ export default function MesDetalle() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
-          {/* Calculation breakdown */}
-          {config && !suspendido && (
+          {/* Quincenas - REBUILT: Only minutes, both quincenas visible */}
+          {!suspendido && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">📊 Desglose del Cálculo (Configuración Quincenal)</CardTitle>
+                <CardTitle className="text-base">📅 Ingreso de Quincenas (Minutos)</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Min. precaria × $/min</span>
-                  <span>{Number(config.horas_discriminadas)} min × ${Number(config.valor_hora_discriminada)} = <strong>${(Number(config.horas_discriminadas) * Number(config.valor_hora_discriminada)).toLocaleString()}</strong></span>
+              <CardContent className="space-y-4">
+                {/* Quincena 1 */}
+                <div className="p-3 rounded-lg border bg-muted/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-sm">Quincena 1</span>
+                    {q1Data && <Badge variant="outline" className="text-[10px]">✅ Cargada</Badge>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Minutos Precaria</Label>
+                      <Input type="number" min="0" step="1" placeholder="0"
+                        value={q1Form.minutos_precaria || (q1Data ? String(q1Data.minutos_precaria) : "")}
+                        onChange={(e) => setQ1Form(p => ({ ...p, minutos_precaria: e.target.value }))}
+                        disabled={pagado}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Minutos Empadronada</Label>
+                      <Input type="number" min="0" step="1" placeholder="0"
+                        value={q1Form.minutos_empadronada || (q1Data ? String(q1Data.minutos_empadronada) : "")}
+                        onChange={(e) => setQ1Form(p => ({ ...p, minutos_empadronada: e.target.value }))}
+                        disabled={pagado}
+                      />
+                    </div>
+                  </div>
+                  {!pagado && (
+                    <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
+                      numero: 1,
+                      minutos_precaria: Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0),
+                      minutos_empadronada: Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0),
+                    })} disabled={saveQuincena.isPending}>
+                      {saveQuincena.isPending ? "Guardando..." : "Guardar Q1"}
+                    </Button>
+                  )}
                 </div>
-                <div className="flex justify-between">
-                  <span>Min. empadronada × $/min</span>
-                  <span>{Number(config.horas_no_discriminadas)} min × ${Number(config.valor_hora_no_discriminada)} = <strong>${(Number(config.horas_no_discriminadas) * Number(config.valor_hora_no_discriminada)).toLocaleString()}</strong></span>
-                </div>
-                <hr className="my-2" />
-                <div className="flex justify-between font-bold">
-                  <span>Total mensual (calculado por quincenas)</span>
-                  <span>${totalCalc.toLocaleString()}</span>
+
+                {/* Quincena 2 */}
+                <div className="p-3 rounded-lg border bg-muted/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-sm">Quincena 2</span>
+                    {q2Data && <Badge variant="outline" className="text-[10px]">✅ Cargada</Badge>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Minutos Precaria</Label>
+                      <Input type="number" min="0" step="1" placeholder="0"
+                        value={q2Form.minutos_precaria || (q2Data ? String(q2Data.minutos_precaria) : "")}
+                        onChange={(e) => setQ2Form(p => ({ ...p, minutos_precaria: e.target.value }))}
+                        disabled={pagado}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Minutos Empadronada</Label>
+                      <Input type="number" min="0" step="1" placeholder="0"
+                        value={q2Form.minutos_empadronada || (q2Data ? String(q2Data.minutos_empadronada) : "")}
+                        onChange={(e) => setQ2Form(p => ({ ...p, minutos_empadronada: e.target.value }))}
+                        disabled={pagado}
+                      />
+                    </div>
+                  </div>
+                  {!pagado && (
+                    <Button size="sm" className="w-full mt-2" onClick={() => saveQuincena.mutate({
+                      numero: 2,
+                      minutos_precaria: Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0),
+                      minutos_empadronada: Number(q2Form.minutos_empadronada || q2Data?.minutos_empadronada || 0),
+                    })} disabled={saveQuincena.isPending}>
+                      {saveQuincena.isPending ? "Guardando..." : "Guardar Q2"}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Quincenas */}
-          {!suspendido && (
+          {/* Calculation Breakdown - REBUILT: Shows full formula */}
+          {config && !suspendido && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">📅 Quincenas (Minutos)</CardTitle>
+                <CardTitle className="text-base">🧮 Motor de Cálculo (Fórmula)</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Display existing quincenas */}
-                {quincenas && quincenas.length > 0 && (
-                  <div className="space-y-2 mb-4">
-                    {quincenas.map((q: any) => (
-                      <div key={q.id} className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm">
-                        <span>Quincena {q.numero_quincena}</span>
-                        <span>Prec: {Number(q.minutos_precaria)}min | Emp: {Number(q.minutos_empadronada)}min</span>
-                        <span className="font-semibold">${Number(q.subtotal_calculado).toLocaleString()}</span>
-                        <Button size="sm" variant="ghost" onClick={() => loadQuincena(q.numero_quincena)} disabled={pagado}>Editar</Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {!pagado && (
-                  <div className="space-y-3 border-t pt-3">
-                    <div className="flex gap-2">
-                      <Button size="sm" variant={quincenaForm.numero_quincena === 1 ? "default" : "outline"} onClick={() => loadQuincena(1)}>Q1</Button>
-                      <Button size="sm" variant={quincenaForm.numero_quincena === 2 ? "default" : "outline"} onClick={() => loadQuincena(2)}>Q2</Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><Label>Minutos Precaria</Label><Input type="number" min="0" value={quincenaForm.minutos_precaria} onChange={(e) => setQuincenaForm(p => ({ ...p, minutos_precaria: e.target.value }))} /></div>
-                      <div><Label>Minutos Empadronada</Label><Input type="number" min="0" value={quincenaForm.minutos_empadronada} onChange={(e) => setQuincenaForm(p => ({ ...p, minutos_empadronada: e.target.value }))} /></div>
-                      <div><Label>$/Min Precaria</Label><Input type="number" min="0" step="0.01" value={quincenaForm.valor_minuto_precaria} onChange={(e) => setQuincenaForm(p => ({ ...p, valor_minuto_precaria: e.target.value }))} /></div>
-                      <div><Label>$/Min Empadronada</Label><Input type="number" min="0" step="0.01" value={quincenaForm.valor_minuto_empadronada} onChange={(e) => setQuincenaForm(p => ({ ...p, valor_minuto_empadronada: e.target.value }))} /></div>
-                    </div>
-                    <Button className="w-full" onClick={() => quincenaMutation.mutate()} disabled={quincenaMutation.isPending}>
-                      {quincenaMutation.isPending ? "Guardando..." : `Guardar Quincena ${quincenaForm.numero_quincena}`}
-                    </Button>
-                  </div>
-                )}
+              <CardContent className="space-y-3 text-sm">
+                <div className="p-3 rounded bg-muted/50 space-y-1">
+                  <p className="font-medium">📊 Precaria</p>
+                  <p>Q1: {Number(q1Form.minutos_precaria || q1Data?.minutos_precaria || 0)} min + Q2: {Number(q2Form.minutos_precaria || q2Data?.minutos_precaria || 0)} min = <strong>{calcPreview.totalMinPrec} min</strong></p>
+                  <p>{calcPreview.totalMinPrec} min ÷ 60 = {calcPreview.horasDecPrec.toFixed(2)} h → CEIL → <strong>{calcPreview.horasFinalPrec} h</strong></p>
+                  <p>{calcPreview.horasFinalPrec} h × ${calcPreview.valorHoraPrec.toLocaleString()}/h = <strong>${calcPreview.totalPrec.toLocaleString()}</strong></p>
+                </div>
+                <div className="p-3 rounded bg-muted/50 space-y-1">
+                  <p className="font-medium">📊 Empadronada</p>
+                  <p>Q1: {Number(q1Form.minutos_empadronada || q1Data?.minutos_empadronada || 0)} min + Q2: {Number(q2Form.minutos_empadronada || q2Data?.minutos_empadronada || 0)} min = <strong>{calcPreview.totalMinEmp} min</strong></p>
+                  <p>{calcPreview.totalMinEmp} min ÷ 60 = {calcPreview.horasDecEmp.toFixed(2)} h → CEIL → <strong>{calcPreview.horasFinalEmp} h</strong></p>
+                  <p>{calcPreview.horasFinalEmp} h × ${calcPreview.valorHoraEmp.toLocaleString()}/h = <strong>${calcPreview.totalEmp.toLocaleString()}</strong></p>
+                </div>
+                <hr />
+                <div className="flex justify-between font-bold text-base">
+                  <span>Total Mensual</span>
+                  <span>${calcPreview.totalMensual.toLocaleString()}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Fórmula: CEIL(total_min/60) × $/hora. Cada tipo se redondea independientemente.</p>
               </CardContent>
             </Card>
           )}
@@ -380,9 +430,7 @@ export default function MesDetalle() {
           {/* Payment form */}
           {!pagado && !suspendido && (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">💰 Registrar Pago</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">💰 Registrar Pago</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div>
                   <Label>Monto ($)</Label>
@@ -418,9 +466,7 @@ export default function MesDetalle() {
 
           {/* Observations */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">📝 Observaciones</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-base">📝 Observaciones</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
                 <Textarea placeholder="Escribir observación..." value={obsText} onChange={(e) => setObsText(e.target.value)} />
@@ -436,15 +482,12 @@ export default function MesDetalle() {
                   {obsMutation.isPending ? "Guardando..." : "Agregar Observación"}
                 </Button>
               </div>
-
               {observaciones && observaciones.length > 0 && (
                 <div className="space-y-3 border-t pt-3">
                   {observaciones.map((obs: any) => (
                     <div key={obs.id} className="p-3 rounded-lg bg-muted/50 text-sm">
                       {obs.texto && <p>{obs.texto}</p>}
-                      {obs.imagen_url && (
-                        <img src={obs.imagen_url} alt="Observación" className="mt-2 rounded max-h-48 object-cover" />
-                      )}
+                      {obs.imagen_url && <img src={obs.imagen_url} alt="Observación" className="mt-2 rounded max-h-48 object-cover" />}
                       <p className="text-xs text-muted-foreground mt-1">
                         {new Date(obs.fecha_creacion).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </p>
@@ -458,20 +501,13 @@ export default function MesDetalle() {
 
         {/* Right: Payment history */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">📋 Historial de Pagos</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">📋 Historial de Pagos</CardTitle></CardHeader>
           <CardContent>
             {pagos && pagos.length > 0 ? (
               <div className="space-y-3">
                 {pagos.map((p, i) => (
-                  <motion.div
-                    key={p.id}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
-                  >
+                  <motion.div key={p.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                    className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">
                       <DollarSign className="h-4 w-4 text-primary" />
                     </div>

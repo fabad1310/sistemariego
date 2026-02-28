@@ -43,17 +43,15 @@ export default function ClienteDetalle() {
   const [configOpen, setConfigOpen] = useState(false);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
   const [editClienteOpen, setEditClienteOpen] = useState(false);
+
+  // Config form: ONLY hourly rates (no minutes - those go in quincenas)
   const [configForm, setConfigForm] = useState({
-    minutos_precaria: "",
-    minutos_empadronada: "",
-    valor_minuto_precaria: "",
-    valor_minuto_empadronada: "",
+    valor_hora_precaria: "",
+    valor_hora_empadronada: "",
   });
   const [editConfigForm, setEditConfigForm] = useState({
-    minutos_precaria: "",
-    minutos_empadronada: "",
-    valor_minuto_precaria: "",
-    valor_minuto_empadronada: "",
+    valor_hora_precaria: "",
+    valor_hora_empadronada: "",
   });
 
   const editClienteForm = useForm<EditClienteForm>({
@@ -92,31 +90,17 @@ export default function ClienteDetalle() {
   if (availableYears.length === 0) availableYears.push(currentYear);
 
   const currentConfig = configs?.find((c) => c.anio === selectedYear);
-
-  // Check if client has any suspended months
   const hasSuspendedService = meses?.some((m) => (m as any).estado_servicio === "suspendido") ?? false;
 
   // Edit client mutation
   const editClienteMutation = useMutation({
     mutationFn: async (values: EditClienteForm) => {
-      const { data: existing } = await supabase
-        .from("clientes")
-        .select("id")
-        .eq("dni", values.dni)
-        .neq("id", id!)
-        .maybeSingle();
+      const { data: existing } = await supabase.from("clientes").select("id").eq("dni", values.dni).neq("id", id!).maybeSingle();
       if (existing) throw new Error("Ya existe otro cliente con ese DNI");
-
       const { error } = await supabase.from("clientes").update({
-        nombre: values.nombre,
-        apellido: values.apellido,
-        dni: values.dni,
-        telefono: values.telefono || null,
-        email: values.email || null,
-        estado: values.estado,
-        nombre_dueno: values.nombre_dueno || null,
-        nombre_propiedad: values.nombre_propiedad || null,
-        nombre_regante: values.nombre_regante || null,
+        nombre: values.nombre, apellido: values.apellido, dni: values.dni,
+        telefono: values.telefono || null, email: values.email || null, estado: values.estado,
+        nombre_dueno: values.nombre_dueno || null, nombre_propiedad: values.nombre_propiedad || null, nombre_regante: values.nombre_regante || null,
       } as any).eq("id", id!);
       if (error) throw error;
     },
@@ -129,19 +113,16 @@ export default function ClienteDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al actualizar"),
   });
 
-  // Create config mutation
+  // Create config mutation - only sends hourly rates
   const createConfigMutation = useMutation({
     mutationFn: async () => {
-      const mp = Number(configForm.minutos_precaria);
-      const me = Number(configForm.minutos_empadronada);
-      const vmp = Number(configForm.valor_minuto_precaria);
-      const vme = Number(configForm.valor_minuto_empadronada);
-      if (mp < 0 || me < 0 || vmp < 0 || vme < 0) throw new Error("Valores inválidos");
-      if (mp === 0 && me === 0) throw new Error("Debe ingresar al menos un tipo de minutos");
+      const vhp = Number(configForm.valor_hora_precaria);
+      const vhe = Number(configForm.valor_hora_empadronada);
+      if (vhp < 0 || vhe < 0) throw new Error("Valores inválidos");
+      if (vhp === 0 && vhe === 0) throw new Error("Debe ingresar al menos un valor por hora");
 
-      // Send as horas_* params for backend compatibility, but values are now per-quincena minutes
       const res = await supabase.functions.invoke("crear-configuracion", {
-        body: { cliente_id: id, anio: selectedYear, horas_discriminadas: mp, horas_no_discriminadas: me, valor_hora_discriminada: vmp, valor_hora_no_discriminada: vme },
+        body: { cliente_id: id, anio: selectedYear, valor_hora_precaria: vhp, valor_hora_empadronada: vhe },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
@@ -152,24 +133,21 @@ export default function ClienteDetalle() {
       queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
       toast.success("Configuración creada y 12 meses generados 🌱");
       setConfigOpen(false);
-      setConfigForm({ minutos_precaria: "", minutos_empadronada: "", valor_minuto_precaria: "", valor_minuto_empadronada: "" });
+      setConfigForm({ valor_hora_precaria: "", valor_hora_empadronada: "" });
     },
     onError: (err: any) => toast.error(err.message || "Error al crear configuración"),
   });
 
-  // Edit config mutation
+  // Edit config mutation - only updates hourly rates
   const editConfigMutation = useMutation({
     mutationFn: async () => {
       if (!currentConfig) throw new Error("No hay configuración para editar");
-      const mp = Number(editConfigForm.minutos_precaria);
-      const me = Number(editConfigForm.minutos_empadronada);
-      const vmp = Number(editConfigForm.valor_minuto_precaria);
-      const vme = Number(editConfigForm.valor_minuto_empadronada);
-      if (mp < 0 || me < 0 || vmp < 0 || vme < 0) throw new Error("Valores inválidos");
-      if (mp === 0 && me === 0) throw new Error("Debe ingresar al menos un tipo de minutos");
+      const vhp = Number(editConfigForm.valor_hora_precaria);
+      const vhe = Number(editConfigForm.valor_hora_empadronada);
+      if (vhp < 0 || vhe < 0) throw new Error("Valores inválidos");
 
       const res = await supabase.functions.invoke("actualizar-configuracion", {
-        body: { configuracion_id: currentConfig.id, horas_discriminadas: mp, horas_no_discriminadas: me, valor_hora_discriminada: vmp, valor_hora_no_discriminada: vme },
+        body: { configuracion_id: currentConfig.id, valor_hora_precaria: vhp, valor_hora_empadronada: vhe },
       });
       if (res.error) throw res.error;
       if (res.data?.error) throw new Error(res.data.error);
@@ -190,19 +168,12 @@ export default function ClienteDetalle() {
   const progreso = totalAnio > 0 ? (totalPagado / totalAnio) * 100 : 0;
   const configExiste = configs?.some((c) => c.anio === selectedYear);
 
-  const totalMinutosConfig = Number(configForm.minutos_precaria || 0) + Number(configForm.minutos_empadronada || 0);
-
   const handleOpenEditCliente = () => {
     if (cliente) {
       editClienteForm.reset({
-        nombre: cliente.nombre,
-        apellido: cliente.apellido,
-        dni: cliente.dni,
-        telefono: cliente.telefono || "",
-        email: cliente.email || "",
-        estado: cliente.estado as "activo" | "inactivo",
-        nombre_dueno: (cliente as any).nombre_dueno || "",
-        nombre_propiedad: (cliente as any).nombre_propiedad || "",
+        nombre: cliente.nombre, apellido: cliente.apellido, dni: cliente.dni,
+        telefono: cliente.telefono || "", email: cliente.email || "", estado: cliente.estado as "activo" | "inactivo",
+        nombre_dueno: (cliente as any).nombre_dueno || "", nombre_propiedad: (cliente as any).nombre_propiedad || "",
         nombre_regante: (cliente as any).nombre_regante || "",
       });
     }
@@ -212,18 +183,12 @@ export default function ClienteDetalle() {
   const handleOpenEditConfig = () => {
     if (currentConfig) {
       setEditConfigForm({
-        minutos_precaria: String(currentConfig.horas_discriminadas),
-        minutos_empadronada: String(currentConfig.horas_no_discriminadas),
-        valor_minuto_precaria: String(currentConfig.valor_hora_discriminada),
-        valor_minuto_empadronada: String(currentConfig.valor_hora_no_discriminada),
+        valor_hora_precaria: String(currentConfig.valor_hora_discriminada),
+        valor_hora_empadronada: String(currentConfig.valor_hora_no_discriminada),
       });
     }
     setEditConfigOpen(true);
   };
-
-  const editTotalMinutos = Number(editConfigForm.minutos_precaria || 0) + Number(editConfigForm.minutos_empadronada || 0);
-  const editTotalEstimado = (Number(editConfigForm.minutos_precaria || 0) * Number(editConfigForm.valor_minuto_precaria || 0)) +
-    (Number(editConfigForm.minutos_empadronada || 0) * Number(editConfigForm.valor_minuto_empadronada || 0));
 
   return (
     <div>
@@ -262,9 +227,7 @@ export default function ClienteDetalle() {
       {/* Edit Client Dialog */}
       <Dialog open={editClienteOpen} onOpenChange={setEditClienteOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>✏️ Editar Cliente</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>✏️ Editar Cliente</DialogTitle></DialogHeader>
           <Form {...editClienteForm}>
             <form onSubmit={editClienteForm.handleSubmit((v) => editClienteMutation.mutate(v))} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -342,17 +305,21 @@ export default function ClienteDetalle() {
                 <DialogTitle>⚙️ Configuración de Riego — {selectedYear}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Ingrese los valores por hora para cada tipo de riego. Los minutos se ingresarán por quincena en cada mes.
+                </p>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Minutos Precaria (por quincena)</Label><Input type="number" min="0" step="1" value={configForm.minutos_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, minutos_precaria: e.target.value }))} /></div>
-                  <div><Label>Minutos Empadronada (por quincena)</Label><Input type="number" min="0" step="1" value={configForm.minutos_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, minutos_empadronada: e.target.value }))} /></div>
-                </div>
-                <div className="text-sm text-muted-foreground">Total minutos/quincena: <strong>{totalMinutosConfig}</strong></div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><Label>$/Minuto Precaria</Label><Input type="number" min="0" step="0.01" value={configForm.valor_minuto_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_minuto_precaria: e.target.value }))} /></div>
-                  <div><Label>$/Minuto Empadronada</Label><Input type="number" min="0" step="0.01" value={configForm.valor_minuto_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_minuto_empadronada: e.target.value }))} /></div>
+                  <div>
+                    <Label>$/Hora Precaria</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_precaria} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>$/Hora Empadronada</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={configForm.valor_hora_empadronada} onChange={(e) => setConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
+                  </div>
                 </div>
                 <div className="text-sm bg-muted p-3 rounded-lg">
-                  💧 Total quincenal estimado: <strong>${((Number(configForm.minutos_precaria || 0) * Number(configForm.valor_minuto_precaria || 0)) + (Number(configForm.minutos_empadronada || 0) * Number(configForm.valor_minuto_empadronada || 0))).toLocaleString()}</strong>
+                  💧 Los minutos de riego se cargarán por quincena en el detalle de cada mes. El sistema convertirá minutos → horas (redondeando ↑) y multiplicará por estos valores.
                 </div>
                 <Button className="w-full" onClick={() => createConfigMutation.mutate()} disabled={createConfigMutation.isPending}>
                   {createConfigMutation.isPending ? "Creando..." : "Crear Configuración y Generar Meses"}
@@ -380,16 +347,17 @@ export default function ClienteDetalle() {
               ⚠️ Solo se recalcularán los meses con estado <strong>pendiente</strong>. Los meses ya pagados no se modificarán.
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Minutos Precaria (por quincena)</Label><Input type="number" min="0" step="1" value={editConfigForm.minutos_precaria} onChange={(e) => setEditConfigForm((p) => ({ ...p, minutos_precaria: e.target.value }))} /></div>
-              <div><Label>Minutos Empadronada (por quincena)</Label><Input type="number" min="0" step="1" value={editConfigForm.minutos_empadronada} onChange={(e) => setEditConfigForm((p) => ({ ...p, minutos_empadronada: e.target.value }))} /></div>
-            </div>
-            <div className="text-sm text-muted-foreground">Total minutos/quincena: <strong>{editTotalMinutos}</strong></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>$/Minuto Precaria</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_minuto_precaria} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_minuto_precaria: e.target.value }))} /></div>
-              <div><Label>$/Minuto Empadronada</Label><Input type="number" min="0" step="0.01" value={editConfigForm.valor_minuto_empadronada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_minuto_empadronada: e.target.value }))} /></div>
+              <div>
+                <Label>$/Hora Precaria</Label>
+                <Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_precaria} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_precaria: e.target.value }))} />
+              </div>
+              <div>
+                <Label>$/Hora Empadronada</Label>
+                <Input type="number" min="0" step="0.01" value={editConfigForm.valor_hora_empadronada} onChange={(e) => setEditConfigForm((p) => ({ ...p, valor_hora_empadronada: e.target.value }))} />
+              </div>
             </div>
             <div className="text-sm bg-muted p-3 rounded-lg">
-              💧 Nuevo total quincenal estimado: <strong>${editTotalEstimado.toLocaleString()}</strong>
+              💧 El sistema recalculará los meses pendientes usando los minutos ya cargados en las quincenas con los nuevos valores por hora.
             </div>
             <Button className="w-full" onClick={() => editConfigMutation.mutate()} disabled={editConfigMutation.isPending}>
               {editConfigMutation.isPending ? "Actualizando..." : "Actualizar Configuración"}
@@ -422,6 +390,14 @@ export default function ClienteDetalle() {
         </Card>
       )}
 
+      {/* Config info */}
+      {currentConfig && (
+        <div className="mb-4 text-sm text-muted-foreground flex gap-4">
+          <span>💧 Precaria: <strong>${Number(currentConfig.valor_hora_discriminada).toLocaleString()}/hora</strong></span>
+          <span>💧 Empadronada: <strong>${Number(currentConfig.valor_hora_no_discriminada).toLocaleString()}/hora</strong></span>
+        </div>
+      )}
+
       {/* Monthly grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {meses?.map((m, i) => {
@@ -431,10 +407,8 @@ export default function ClienteDetalle() {
             <motion.div key={m.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
               <Card
                 className={`cursor-pointer hover:shadow-md transition-all border-2 ${
-                  suspendido
-                    ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
-                    : pagado
-                    ? "border-success/40 bg-success/5"
+                  suspendido ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
+                    : pagado ? "border-success/40 bg-success/5"
                     : "border-destructive/20 bg-destructive/5"
                 }`}
                 onClick={() => navigate(`/clientes/${id}/mes/${m.id}`)}

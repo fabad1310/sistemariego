@@ -21,7 +21,7 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { cliente_id, anio, horas_discriminadas, horas_no_discriminadas, valor_hora_discriminada, valor_hora_no_discriminada } = body;
+    const { cliente_id, anio, valor_hora_precaria, valor_hora_empadronada } = body;
 
     // UUID validation
     if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
@@ -31,18 +31,15 @@ serve(async (req) => {
       throw new Error("anio debe ser un número entero entre 2000 y 2100");
     }
 
-    // Numeric validations with bounds
-    if (typeof horas_discriminadas !== "number" || !Number.isFinite(horas_discriminadas) || horas_discriminadas <= 0 || horas_discriminadas > MAX_VALUE) {
-      throw new Error("horas_discriminadas debe ser mayor a 0 y menor a 100.000.000");
+    // Rate validations
+    if (typeof valor_hora_precaria !== "number" || !Number.isFinite(valor_hora_precaria) || valor_hora_precaria < 0 || valor_hora_precaria > MAX_VALUE) {
+      throw new Error("valor_hora_precaria debe ser un número no negativo válido");
     }
-    if (typeof horas_no_discriminadas !== "number" || !Number.isFinite(horas_no_discriminadas) || horas_no_discriminadas < 0 || horas_no_discriminadas > MAX_VALUE) {
-      throw new Error("horas_no_discriminadas no puede ser negativo ni mayor a 100.000.000");
+    if (typeof valor_hora_empadronada !== "number" || !Number.isFinite(valor_hora_empadronada) || valor_hora_empadronada < 0 || valor_hora_empadronada > MAX_VALUE) {
+      throw new Error("valor_hora_empadronada debe ser un número no negativo válido");
     }
-    if (typeof valor_hora_discriminada !== "number" || !Number.isFinite(valor_hora_discriminada) || valor_hora_discriminada <= 0 || valor_hora_discriminada > MAX_VALUE) {
-      throw new Error("valor_hora_discriminada debe ser mayor a 0 y menor a 100.000.000");
-    }
-    if (typeof valor_hora_no_discriminada !== "number" || !Number.isFinite(valor_hora_no_discriminada) || valor_hora_no_discriminada < 0 || valor_hora_no_discriminada > MAX_VALUE) {
-      throw new Error("valor_hora_no_discriminada no puede ser negativo ni mayor a 100.000.000");
+    if (valor_hora_precaria === 0 && valor_hora_empadronada === 0) {
+      throw new Error("Al menos un valor por hora debe ser mayor a 0");
     }
 
     // Verify client exists
@@ -52,8 +49,6 @@ serve(async (req) => {
       .eq("id", cliente_id)
       .maybeSingle();
     if (clienteErr || !cliente) throw new Error("Cliente no encontrado");
-
-    const horas_totales_mes = horas_discriminadas + horas_no_discriminadas;
 
     // Check if config already exists
     const { data: existing } = await supabase
@@ -65,48 +60,53 @@ serve(async (req) => {
 
     if (existing) throw new Error(`Ya existe configuración para el año ${anio}`);
 
-    // Create config
+    // Create config - store hourly rates (using existing column names for compatibility)
     const { data: config, error: configError } = await supabase
       .from("configuracion_riego_cliente")
       .insert({
         cliente_id,
         anio,
-        horas_totales_mes,
-        horas_discriminadas,
-        horas_no_discriminadas,
-        valor_hora_discriminada,
-        valor_hora_no_discriminada,
+        horas_totales_mes: 0,
+        horas_discriminadas: 0,
+        horas_no_discriminadas: 0,
+        valor_hora_discriminada: valor_hora_precaria,
+        valor_hora_no_discriminada: valor_hora_empadronada,
       })
       .select()
       .single();
 
     if (configError) throw configError;
 
-    const total_calculado = (horas_discriminadas * valor_hora_discriminada) + (horas_no_discriminadas * valor_hora_no_discriminada);
-
-    // Generate 12 months
+    // Generate 12 months with total_calculado = 0 (calculated when quincenas are entered)
     const meses = Array.from({ length: 12 }, (_, i) => ({
       cliente_id,
       configuracion_id: config.id,
       anio,
       mes: i + 1,
-      total_calculado,
+      total_calculado: 0,
       total_pagado: 0,
-      saldo_pendiente: total_calculado,
+      saldo_pendiente: 0,
       estado_mes: "pendiente",
+      horas_precaria_final: 0,
+      horas_empadronada_final: 0,
     }));
 
     const { error: mesesError } = await supabase.from("meses_servicio").insert(meses);
     if (mesesError) throw mesesError;
 
     return new Response(
-      JSON.stringify({ success: true, configuracion_id: config.id, total_mensual: total_calculado }),
+      JSON.stringify({
+        success: true,
+        configuracion_id: config.id,
+        valor_hora_precaria,
+        valor_hora_empadronada,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
     console.error('[crear-configuracion]', error);
     return new Response(
-      JSON.stringify({ error: "No se pudo crear la configuración. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo crear la configuración. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

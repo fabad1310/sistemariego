@@ -22,15 +22,11 @@ serve(async (req) => {
     const body = await req.json();
     const { mes_servicio_id, accion } = body;
 
-    // UUID validation
     if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
-
-    // Action validation
     if (typeof accion !== "string" || !["suspender", "reactivar"].includes(accion)) {
       throw new Error("accion debe ser 'suspender' o 'reactivar'");
     }
 
-    // Get the target month
     const { data: mes, error: mesErr } = await supabase
       .from("meses_servicio")
       .select("*")
@@ -51,6 +47,8 @@ serve(async (req) => {
           total_calculado: 0,
           saldo_pendiente: 0,
           estado_mes: "pagado",
+          horas_precaria_final: 0,
+          horas_empadronada_final: 0,
         })
         .eq("id", mes_servicio_id);
       if (suspErr) throw suspErr;
@@ -66,16 +64,17 @@ serve(async (req) => {
       if (futErr) throw futErr;
 
       for (const fm of (futureMeses || [])) {
-        const { error: upErr } = await supabase
+        await supabase
           .from("meses_servicio")
           .update({
             estado_servicio: "suspendido",
             total_calculado: 0,
             saldo_pendiente: 0,
             estado_mes: "pagado",
+            horas_precaria_final: 0,
+            horas_empadronada_final: 0,
           })
           .eq("id", fm.id);
-        if (upErr) throw upErr;
       }
 
       return new Response(
@@ -83,6 +82,7 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } else {
+      // Reactivar: recalculate using quincenas + config rates
       const { data: config, error: confErr } = await supabase
         .from("configuracion_riego_cliente")
         .select("*")
@@ -91,19 +91,39 @@ serve(async (req) => {
 
       if (confErr || !config) throw new Error("Configuración no encontrada");
 
-      const total_calculado = (Number(config.horas_discriminadas) * Number(config.valor_hora_discriminada)) +
-        (Number(config.horas_no_discriminadas) * Number(config.valor_hora_no_discriminada));
+      const valorHoraPrec = Number(config.valor_hora_discriminada);
+      const valorHoraEmp = Number(config.valor_hora_no_discriminada);
 
-      const { error: reactErr } = await supabase
-        .from("meses_servicio")
-        .update({
-          estado_servicio: "activo",
-          total_calculado,
-          saldo_pendiente: Math.max(0, total_calculado - Number(mes.total_pagado)),
-          estado_mes: total_calculado - Number(mes.total_pagado) <= 0 ? "pagado" : "pendiente",
-        })
-        .eq("id", mes_servicio_id);
-      if (reactErr) throw reactErr;
+      // Helper to recalculate a month from its quincenas
+      const recalcMonth = async (monthId: string, totalPagado: number) => {
+        const { data: quincenas } = await supabase
+          .from("quincenas_servicio")
+          .select("*")
+          .eq("mes_servicio_id", monthId);
+
+        const totalMinPrec = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
+        const totalMinEmp = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
+
+        const horasPrecFinal = Math.ceil(totalMinPrec / 60);
+        const horasEmpFinal = Math.ceil(totalMinEmp / 60);
+
+        const totalCalc = (horasPrecFinal * valorHoraPrec) + (horasEmpFinal * valorHoraEmp);
+        const saldo = Math.max(0, totalCalc - totalPagado);
+
+        await supabase
+          .from("meses_servicio")
+          .update({
+            estado_servicio: "activo",
+            horas_precaria_final: horasPrecFinal,
+            horas_empadronada_final: horasEmpFinal,
+            total_calculado: totalCalc,
+            saldo_pendiente: saldo,
+            estado_mes: saldo <= 0 ? "pagado" : "pendiente",
+          })
+          .eq("id", monthId);
+      };
+
+      await recalcMonth(mes.id, Number(mes.total_pagado));
 
       const { data: futureSusp, error: futSErr } = await supabase
         .from("meses_servicio")
@@ -116,17 +136,7 @@ serve(async (req) => {
       if (futSErr) throw futSErr;
 
       for (const fm of (futureSusp || [])) {
-        const saldo = Math.max(0, total_calculado - Number(fm.total_pagado));
-        const { error: upErr } = await supabase
-          .from("meses_servicio")
-          .update({
-            estado_servicio: "activo",
-            total_calculado,
-            saldo_pendiente: saldo,
-            estado_mes: saldo <= 0 ? "pagado" : "pendiente",
-          })
-          .eq("id", fm.id);
-        if (upErr) throw upErr;
+        await recalcMonth(fm.id, Number(fm.total_pagado));
       }
 
       return new Response(
@@ -137,7 +147,7 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[suspender-servicio]', error);
     return new Response(
-      JSON.stringify({ error: "No se pudo completar la operación. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo completar la operación. Intente nuevamente." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
