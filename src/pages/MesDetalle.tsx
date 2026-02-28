@@ -110,14 +110,15 @@ export default function MesDetalle() {
 
     const totalPrec = horasFinalPrec * valorHoraPrec;
     const totalEmp = horasFinalEmp * valorHoraEmp;
-    const totalMensual = totalPrec + totalEmp;
+    const montoAdmin = Number((mes as any)?.monto_administrativo || 0);
+    const totalMensual = totalPrec + totalEmp + montoAdmin;
 
     return {
       totalMinPrec, totalMinEmp,
       horasDecPrec, horasDecEmp,
       horasFinalPrec, horasFinalEmp,
       valorHoraPrec, valorHoraEmp,
-      totalPrec, totalEmp, totalMensual,
+      totalPrec, totalEmp, montoAdmin, totalMensual,
     };
   }, [q1Form, q2Form, q1Data, q2Data, config]);
 
@@ -397,11 +398,17 @@ export default function MesDetalle() {
                   <p>{calcPreview.horasFinalEmp} h × ${calcPreview.valorHoraEmp.toLocaleString()}/h = <strong>${calcPreview.totalEmp.toLocaleString()}</strong></p>
                 </div>
                 <hr />
+                {calcPreview.montoAdmin > 0 && (
+                  <div className="p-3 rounded bg-muted/50 space-y-1">
+                    <p className="font-medium">📋 Gestión Administrativa</p>
+                    <p><strong>${calcPreview.montoAdmin.toLocaleString()}</strong></p>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-base">
                   <span>Total Mensual</span>
                   <span>${calcPreview.totalMensual.toLocaleString()}</span>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Fórmula: CEIL(total_min/60) × $/hora. Cada tipo se redondea independientemente.</p>
+                <p className="text-[10px] text-muted-foreground">Fórmula: CEIL(total_min/60) × $/hora + Gestión Admin.</p>
               </CardContent>
             </Card>
           )}

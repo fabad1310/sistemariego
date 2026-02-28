@@ -20,92 +20,66 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { valor_hora_discriminada, valor_hora_no_discriminada } = body;
+    const { clave, valor } = body;
 
-    // Numeric validations with type checking and bounds
-    if (typeof valor_hora_discriminada !== "number" || !Number.isFinite(valor_hora_discriminada) || valor_hora_discriminada <= 0 || valor_hora_discriminada > MAX_VALUE) {
-      throw new Error("valor_hora_discriminada debe ser un número positivo válido");
+    if (typeof clave !== "string" || clave.trim().length === 0 || clave.length > 100) {
+      throw new Error("clave inválida");
     }
-    if (typeof valor_hora_no_discriminada !== "number" || !Number.isFinite(valor_hora_no_discriminada) || valor_hora_no_discriminada < 0 || valor_hora_no_discriminada > MAX_VALUE) {
-      throw new Error("valor_hora_no_discriminada no puede ser negativo");
-    }
-
-    const currentYear = new Date().getFullYear();
-
-    // Get all active clients
-    const { data: clientesActivos, error: clientesErr } = await supabase
-      .from("clientes")
-      .select("id")
-      .eq("estado", "activo");
-
-    if (clientesErr) throw clientesErr;
-
-    const clienteIds = (clientesActivos || []).map(c => c.id);
-    if (clienteIds.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, configs_actualizadas: 0, meses_actualizados: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0 || valor > MAX_VALUE) {
+      throw new Error("valor debe ser un número entre 0 y 100.000.000");
     }
 
-    // Get current year configs for active clients
-    const { data: configs, error: configsErr } = await supabase
-      .from("configuracion_riego_cliente")
-      .select("*")
-      .eq("anio", currentYear)
-      .in("cliente_id", clienteIds);
+    // Update global config
+    const { error: updateErr } = await supabase
+      .from("configuracion_global")
+      .update({ valor, updated_at: new Date().toISOString() })
+      .eq("clave", clave);
+    if (updateErr) throw updateErr;
 
-    if (configsErr) throw configsErr;
-
-    let configsActualizadas = 0;
-    let mesesActualizados = 0;
-
-    for (const config of (configs || [])) {
-      const nuevo_total = (Number(config.horas_discriminadas) * valor_hora_discriminada) +
-        (Number(config.horas_no_discriminadas) * valor_hora_no_discriminada);
-
-      const { error: updateConfigErr } = await supabase
-        .from("configuracion_riego_cliente")
-        .update({ valor_hora_discriminada, valor_hora_no_discriminada })
-        .eq("id", config.id);
-
-      if (updateConfigErr) throw updateConfigErr;
-      configsActualizadas++;
-
+    // If updating monto_administrativo, update all pending months
+    if (clave === "monto_administrativo") {
       const { data: mesesPendientes, error: mesesErr } = await supabase
         .from("meses_servicio")
-        .select("*")
-        .eq("configuracion_id", config.id)
-        .eq("estado_mes", "pendiente");
+        .select("id, total_calculado, total_pagado, monto_administrativo")
+        .eq("estado_mes", "pendiente")
+        .neq("estado_servicio", "suspendido");
 
       if (mesesErr) throw mesesErr;
 
+      let mesesActualizados = 0;
       for (const mes of (mesesPendientes || [])) {
-        const nuevoSaldo = Math.max(0, nuevo_total - Number(mes.total_pagado));
+        const totalSinAdmin = Number(mes.total_calculado) - Number(mes.monto_administrativo);
+        const nuevoTotal = totalSinAdmin + valor;
+        const nuevoSaldo = Math.max(0, nuevoTotal - Number(mes.total_pagado));
         const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
-        const { error: updateErr } = await supabase
+        const { error } = await supabase
           .from("meses_servicio")
           .update({
-            total_calculado: nuevo_total,
+            monto_administrativo: valor,
+            total_calculado: nuevoTotal,
             saldo_pendiente: nuevoSaldo,
             estado_mes: nuevoEstado,
           })
           .eq("id", mes.id);
-
-        if (updateErr) throw updateErr;
+        if (error) throw error;
         mesesActualizados++;
       }
+
+      return new Response(
+        JSON.stringify({ success: true, meses_actualizados: mesesActualizados, nuevo_valor: valor }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
-      JSON.stringify({ success: true, configs_actualizadas: configsActualizadas, meses_actualizados: mesesActualizados }),
+      JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
-    console.error('[actualizar-valores-globales]', error);
+    console.error("[actualizar-valores-globales]", error);
     return new Response(
-      JSON.stringify({ error: "No se pudo actualizar los valores. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "Error al actualizar configuración global" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

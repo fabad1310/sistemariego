@@ -28,49 +28,43 @@ serve(async (req) => {
       q1_precaria, q1_empadronada, q2_precaria, q2_empadronada
     } = body;
 
-    // Validate cliente_id
     if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
+    if (typeof anio !== "number" || !Number.isInteger(anio) || anio < 2000 || anio > 2100) throw new Error("anio inválido");
 
-    // Validate year
-    if (typeof anio !== "number" || !Number.isInteger(anio) || anio < 2000 || anio > 2100) {
-      throw new Error("anio debe ser un número entero entre 2000 y 2100");
-    }
+    if (typeof valor_hora_precaria !== "number" || !Number.isFinite(valor_hora_precaria) || valor_hora_precaria < 0 || valor_hora_precaria > MAX_VALUE) throw new Error("valor_hora_precaria inválido");
+    if (typeof valor_hora_empadronada !== "number" || !Number.isFinite(valor_hora_empadronada) || valor_hora_empadronada < 0 || valor_hora_empadronada > MAX_VALUE) throw new Error("valor_hora_empadronada inválido");
+    if (valor_hora_precaria === 0 && valor_hora_empadronada === 0) throw new Error("Al menos un valor por hora debe ser mayor a 0");
 
-    // Validate rates
-    if (typeof valor_hora_precaria !== "number" || !Number.isFinite(valor_hora_precaria) || valor_hora_precaria < 0 || valor_hora_precaria > MAX_VALUE) {
-      throw new Error("valor_hora_precaria inválido");
-    }
-    if (typeof valor_hora_empadronada !== "number" || !Number.isFinite(valor_hora_empadronada) || valor_hora_empadronada < 0 || valor_hora_empadronada > MAX_VALUE) {
-      throw new Error("valor_hora_empadronada inválido");
-    }
-    if (valor_hora_precaria === 0 && valor_hora_empadronada === 0) {
-      throw new Error("Al menos un valor por hora debe ser mayor a 0");
-    }
-
-    // Validate quincena minutes (single values applied to all 12 months)
     for (const [field, val] of Object.entries({ q1_precaria, q1_empadronada, q2_precaria, q2_empadronada })) {
       if (typeof val !== "number" || !Number.isFinite(val) || val < 0 || val > MAX_MINUTES || !Number.isInteger(val)) {
         throw new Error(`${field} debe ser un entero no negativo`);
       }
     }
 
-    // Verify client exists
     const { data: cliente, error: clienteErr } = await supabase
       .from("clientes").select("id").eq("id", cliente_id).maybeSingle();
     if (clienteErr || !cliente) throw new Error("Cliente no encontrado");
 
-    // Check no existing config
     const { data: existing } = await supabase
       .from("configuracion_riego_cliente").select("id")
       .eq("cliente_id", cliente_id).eq("anio", anio).maybeSingle();
     if (existing) throw new Error(`Ya existe configuración para el año ${anio}`);
 
-    // Calculate hours and total (same for all months)
+    // Get current admin fee
+    const { data: adminConfig } = await supabase
+      .from("configuracion_global")
+      .select("valor")
+      .eq("clave", "monto_administrativo")
+      .maybeSingle();
+    const montoAdmin = Number(adminConfig?.valor ?? 0);
+
+    // Calculate hours and total
     const totalMinPrecaria = q1_precaria + q2_precaria;
     const totalMinEmpadronada = q1_empadronada + q2_empadronada;
     const horasPrecFinal = totalMinPrecaria > 0 ? Math.ceil(totalMinPrecaria / 60) : 0;
     const horasEmpFinal = totalMinEmpadronada > 0 ? Math.ceil(totalMinEmpadronada / 60) : 0;
-    const totalCalculado = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
+    const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
+    const totalCalculado = totalRiego + montoAdmin;
 
     // 1. Create config
     const { data: config, error: configError } = await supabase
@@ -84,7 +78,7 @@ serve(async (req) => {
       .select().single();
     if (configError) throw configError;
 
-    // 2. Create 12 months (all with same calculated values)
+    // 2. Create 12 months
     const mesesInsert = Array.from({ length: 12 }, (_, i) => ({
       cliente_id, configuracion_id: config.id, anio, mes: i + 1,
       total_calculado: totalCalculado,
@@ -93,13 +87,14 @@ serve(async (req) => {
       estado_mes: "pendiente",
       horas_precaria_final: horasPrecFinal,
       horas_empadronada_final: horasEmpFinal,
+      monto_administrativo: montoAdmin,
     }));
 
     const { data: mesesCreados, error: mesesError } = await supabase
       .from("meses_servicio").insert(mesesInsert).select();
     if (mesesError) throw mesesError;
 
-    // 3. Create quincenas for all 12 months (same values)
+    // 3. Create quincenas for all 12 months
     const quincenasInsert = [];
     for (const mes of mesesCreados!) {
       quincenasInsert.push(
@@ -118,6 +113,7 @@ serve(async (req) => {
         configuracion_id: config.id,
         meses_creados: 12,
         total_por_mes: totalCalculado,
+        monto_administrativo: montoAdmin,
         total_anual: totalCalculado * 12,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

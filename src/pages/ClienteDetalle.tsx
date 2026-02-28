@@ -208,6 +208,17 @@ export default function ClienteDetalle() {
     setEditConfigOpen(true);
   };
 
+  // Fetch global admin fee
+  const { data: configGlobal } = useQuery({
+    queryKey: ["configuracion_global"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("configuracion_global").select("*");
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+  const montoAdmin = Number(configGlobal?.find((c: any) => c.clave === "monto_administrativo")?.valor ?? 0);
+
   // Helper to render calculation preview
   const renderCalcPreview = (form: typeof configForm) => {
     const vhp = Number(form.valor_hora_precaria) || 0;
@@ -220,10 +231,11 @@ export default function ClienteDetalle() {
     const totalMinE = q1e + q2e;
     const horasP = totalMinP > 0 ? Math.ceil(totalMinP / 60) : 0;
     const horasE = totalMinE > 0 ? Math.ceil(totalMinE / 60) : 0;
-    const totalMes = (horasP * vhp) + (horasE * vhe);
+    const totalRiego = (horasP * vhp) + (horasE * vhe);
+    const totalMes = totalRiego + montoAdmin;
     const totalAnual = totalMes * 12;
 
-    if (totalMinP === 0 && totalMinE === 0) return null;
+    if (totalMinP === 0 && totalMinE === 0 && montoAdmin === 0) return null;
 
     return (
       <div className="bg-muted p-3 rounded-lg text-sm space-y-1">
@@ -233,6 +245,9 @@ export default function ClienteDetalle() {
         )}
         {totalMinE > 0 && (
           <p>💧 Empadronada: {q1e} + {q2e} = {totalMinE} min → <strong>{horasE}h</strong> × ${vhe.toLocaleString()} = <strong>${(horasE * vhe).toLocaleString()}</strong></p>
+        )}
+        {montoAdmin > 0 && (
+          <p>📋 Gestión Administrativa: <strong>${montoAdmin.toLocaleString()}</strong></p>
         )}
         <hr className="border-border" />
         <p className="font-bold">Total por mes: ${totalMes.toLocaleString()} | Total anual: ${totalAnual.toLocaleString()}</p>

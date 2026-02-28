@@ -23,7 +23,6 @@ serve(async (req) => {
     const body = await req.json();
     const { mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada } = body;
 
-    // Validations
     if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
     if (![1, 2].includes(numero_quincena)) throw new Error("numero_quincena debe ser 1 o 2");
 
@@ -34,76 +33,41 @@ serve(async (req) => {
       throw new Error("minutos_empadronada debe ser un número entre 0 y 100.000");
     }
 
-    // Verify month exists and is editable
     const { data: mes, error: mesErr } = await supabase
-      .from("meses_servicio")
-      .select("*")
-      .eq("id", mes_servicio_id)
-      .single();
-
+      .from("meses_servicio").select("*").eq("id", mes_servicio_id).single();
     if (mesErr || !mes) throw new Error("Mes de servicio no encontrado");
-    if (mes.estado_mes === "pagado" && mes.estado_servicio !== "suspendido") {
-      throw new Error("No se puede editar un mes ya pagado");
-    }
-    if (mes.estado_servicio === "suspendido") {
-      throw new Error("No se puede editar un mes suspendido");
-    }
+    if (mes.estado_mes === "pagado" && mes.estado_servicio !== "suspendido") throw new Error("No se puede editar un mes ya pagado");
+    if (mes.estado_servicio === "suspendido") throw new Error("No se puede editar un mes suspendido");
 
-    // Upsert quincena (only minutes, no rates)
     const { error: upsertErr } = await supabase
       .from("quincenas_servicio")
-      .upsert({
-        mes_servicio_id,
-        numero_quincena,
-        minutos_precaria,
-        minutos_empadronada,
-      }, { onConflict: "mes_servicio_id,numero_quincena" });
-
+      .upsert({ mes_servicio_id, numero_quincena, minutos_precaria, minutos_empadronada }, { onConflict: "mes_servicio_id,numero_quincena" });
     if (upsertErr) throw upsertErr;
 
-    // Fetch both quincenas for this month
     const { data: quincenas, error: qErr } = await supabase
-      .from("quincenas_servicio")
-      .select("*")
-      .eq("mes_servicio_id", mes_servicio_id);
-
+      .from("quincenas_servicio").select("*").eq("mes_servicio_id", mes_servicio_id);
     if (qErr) throw qErr;
 
-    // Fetch config to get hourly rates
     const { data: config, error: confErr } = await supabase
-      .from("configuracion_riego_cliente")
-      .select("*")
-      .eq("id", mes.configuracion_id)
-      .single();
-
+      .from("configuracion_riego_cliente").select("*").eq("id", mes.configuracion_id).single();
     if (confErr || !config) throw new Error("Configuración no encontrada");
 
     const valor_hora_precaria = Number(config.valor_hora_discriminada);
     const valor_hora_empadronada = Number(config.valor_hora_no_discriminada);
 
-    // Step 1: Sum total minutes per type across both quincenas
     const totalMinutosPrecaria = (quincenas || []).reduce((s, q) => s + Number(q.minutos_precaria), 0);
     const totalMinutosEmpadronada = (quincenas || []).reduce((s, q) => s + Number(q.minutos_empadronada), 0);
 
-    // Step 2: Convert to decimal hours
-    const horasPrecDecimal = totalMinutosPrecaria / 60;
-    const horasEmpDecimal = totalMinutosEmpadronada / 60;
+    const horasPrecFinal = Math.ceil(totalMinutosPrecaria / 60);
+    const horasEmpFinal = Math.ceil(totalMinutosEmpadronada / 60);
 
-    // Step 3: CEIL to integer hours (ALWAYS round up)
-    const horasPrecFinal = Math.ceil(horasPrecDecimal);
-    const horasEmpFinal = Math.ceil(horasEmpDecimal);
-
-    // Step 4: Multiply AFTER rounding
-    const totalPrecaria = horasPrecFinal * valor_hora_precaria;
-    const totalEmpadronada = horasEmpFinal * valor_hora_empadronada;
-
-    // Step 5: Total mensual
-    const totalCalculado = totalPrecaria + totalEmpadronada;
+    const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
+    const montoAdmin = Number(mes.monto_administrativo || 0);
+    const totalCalculado = totalRiego + montoAdmin;
 
     const nuevoSaldo = Math.max(0, totalCalculado - Number(mes.total_pagado));
     const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
-    // Update meses_servicio with final calculated values
     const { error: updateErr } = await supabase
       .from("meses_servicio")
       .update({
@@ -114,7 +78,6 @@ serve(async (req) => {
         estado_mes: nuevoEstado,
       })
       .eq("id", mes_servicio_id);
-
     if (updateErr) throw updateErr;
 
     return new Response(
@@ -122,12 +85,10 @@ serve(async (req) => {
         success: true,
         total_minutos_precaria: totalMinutosPrecaria,
         total_minutos_empadronada: totalMinutosEmpadronada,
-        horas_precaria_decimal: horasPrecDecimal,
-        horas_empadronada_decimal: horasEmpDecimal,
         horas_precaria_final: horasPrecFinal,
         horas_empadronada_final: horasEmpFinal,
-        total_precaria: totalPrecaria,
-        total_empadronada: totalEmpadronada,
+        total_riego: totalRiego,
+        monto_administrativo: montoAdmin,
         total_mensual: totalCalculado,
         saldo_pendiente: nuevoSaldo,
       }),
@@ -136,7 +97,7 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[guardar-quincena]', error);
     return new Response(
-      JSON.stringify({ error: error.message || "No se pudo guardar la quincena. Intente nuevamente." }),
+      JSON.stringify({ error: error.message || "No se pudo guardar la quincena." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

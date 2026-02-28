@@ -1,14 +1,19 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, AlertTriangle, TrendingUp, Banknote, Wallet } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Banknote, Wallet, Settings2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { toast } from "sonner";
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MONTHS_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -21,14 +26,15 @@ const cardVariant = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  // Filter state for "Total Cobrado"
   const [cobradoFilter, setCobradoFilter] = useState("total");
   const [cobradoYear, setCobradoYear] = useState(currentYear);
+  const [adminFeeOpen, setAdminFeeOpen] = useState(false);
+  const [adminFeeValue, setAdminFeeValue] = useState("");
 
-  // Fetch ALL meses_servicio (all years)
   const { data: allMeses } = useQuery({
     queryKey: ["meses_servicio_all"],
     queryFn: async () => {
@@ -51,19 +57,48 @@ export default function Dashboard() {
     queryKey: ["gastos_dashboard"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("gastos")
-        .select("monto, estado, fecha_pago")
-        .eq("estado", "confirmado");
+        .from("gastos").select("monto, estado, fecha_pago").eq("estado", "confirmado");
       if (error) throw error;
       return data;
     },
   });
 
+  const { data: configGlobal } = useQuery({
+    queryKey: ["configuracion_global"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("configuracion_global").select("*");
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
+  const montoAdmin = Number(configGlobal?.find((c: any) => c.clave === "monto_administrativo")?.valor ?? 0);
+
+  const adminFeeMutation = useMutation({
+    mutationFn: async () => {
+      const val = Number(adminFeeValue);
+      if (!Number.isFinite(val) || val < 0) throw new Error("Valor inválido");
+      const res = await supabase.functions.invoke("actualizar-valores-globales", {
+        body: { clave: "monto_administrativo", valor: val },
+      });
+      if (res.error) throw res.error;
+      if (res.data?.error) throw new Error(res.data.error);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["configuracion_global"] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio_all"] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
+      toast.success(`Monto administrativo actualizado. ${data?.meses_actualizados ?? 0} meses pendientes recalculados ✅`);
+      setAdminFeeOpen(false);
+    },
+    onError: (err: any) => toast.error(err.message || "Error al actualizar"),
+  });
+
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
 
-  // DEUDA: all months up to current date, not suspended
   const mesesHastaActual = allMeses?.filter((m) => {
-    if (m.estado_servicio === "suspendido") return false;
+    if ((m as any).estado_servicio === "suspendido") return false;
     if (m.anio < currentYear) return true;
     if (m.anio === currentYear && m.mes <= currentMonth) return true;
     return false;
@@ -73,7 +108,6 @@ export default function Dashboard() {
     .filter((m) => Number(m.saldo_pendiente) > 0)
     .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
 
-  // COBRADO: filtered by selector
   const totalCobradoGlobal = allMeses?.reduce((s, m) => s + Number(m.total_pagado), 0) ?? 0;
 
   const totalCobradoFiltered = (() => {
@@ -84,7 +118,6 @@ export default function Dashboard() {
       .reduce((s, m) => s + Number(m.total_pagado), 0) ?? 0;
   })();
 
-  // BALANCE DE CAJA: ALL income - ALL expenses (real cash balance)
   const totalGastos = gastos?.reduce((s, g) => s + Number(g.monto), 0) ?? 0;
   const balanceCaja = totalCobradoGlobal - totalGastos;
 
@@ -94,10 +127,9 @@ export default function Dashboard() {
   const clientesConDeuda = clientes?.filter((c) => clienteIdsConDeuda.has(c.id)) ?? [];
 
   const clienteIdsSuspendidos = new Set(
-    allMeses?.filter((m) => m.estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
+    allMeses?.filter((m) => (m as any).estado_servicio === "suspendido").map((m) => m.cliente_id) ?? []
   );
 
-  // Chart data for current year
   const mesesCurrentYear = allMeses?.filter((m) => m.anio === currentYear) ?? [];
   const monthlyData = MONTHS.map((name, i) => {
     const mesNum = i + 1;
@@ -114,7 +146,6 @@ export default function Dashboard() {
     { name: "Pendiente", value: totalDeuda },
   ];
 
-  // Available years from data
   const availableYears = [...new Set(allMeses?.map((m) => m.anio) ?? [])].sort();
 
   const cobradoLabel = cobradoFilter === "total"
@@ -125,41 +156,69 @@ export default function Dashboard() {
     <div>
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego</p>
         </div>
+        
+        {/* Admin Fee Button */}
+        <Dialog open={adminFeeOpen} onOpenChange={(open) => { setAdminFeeOpen(open); if (open) setAdminFeeValue(String(montoAdmin)); }}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Settings2 className="h-4 w-4 mr-2" />
+              Cobro Administrativo: ${montoAdmin.toLocaleString()}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>⚙️ Monto Cobro Administrativo Mensual</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los clientes.
+              </p>
+              <div>
+                <Label>Monto Administrativo ($)</Label>
+                <Input
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={adminFeeValue}
+                  onChange={(e) => setAdminFeeValue(e.target.value)}
+                />
+              </div>
+              <div className="p-3 rounded-lg bg-muted text-sm">
+                <p>💡 Valor actual: <strong>${montoAdmin.toLocaleString()}</strong></p>
+                <p>Nuevo valor: <strong>${(Number(adminFeeValue) || 0).toLocaleString()}</strong></p>
+              </div>
+              <Button className="w-full" onClick={() => adminFeeMutation.mutate()} disabled={adminFeeMutation.isPending}>
+                {adminFeeMutation.isPending ? "Actualizando..." : "Actualizar y Recalcular Meses Pendientes"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        {/* Clientes Activos */}
         <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Clientes Activos</CardTitle>
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">🌱 {clientesActivos}</div>
-            </CardContent>
+            <CardContent><div className="text-2xl font-bold">🌱 {clientesActivos}</div></CardContent>
           </Card>
         </motion.div>
 
-        {/* Clientes con Deuda */}
         <motion.div custom={1} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Clientes con Deuda</CardTitle>
               <AlertTriangle className="h-4 w-4 text-primary" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">⚠️ {clientesConDeuda.length}</div>
-            </CardContent>
+            <CardContent><div className="text-2xl font-bold">⚠️ {clientesConDeuda.length}</div></CardContent>
           </Card>
         </motion.div>
 
-        {/* Total Deuda - hasta la fecha */}
         <motion.div custom={2} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -173,7 +232,6 @@ export default function Dashboard() {
           </Card>
         </motion.div>
 
-        {/* Total Cobrado - with filter */}
         <motion.div custom={3} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -184,25 +242,17 @@ export default function Dashboard() {
               <div className="text-2xl font-bold">💰 ${totalCobradoFiltered.toLocaleString()}</div>
               <div className="flex gap-1 mt-2">
                 <Select value={cobradoFilter} onValueChange={setCobradoFilter}>
-                  <SelectTrigger className="h-7 text-xs w-24">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-7 text-xs w-24"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="total">Total</SelectItem>
-                    {MONTHS_FULL.map((m, i) => (
-                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
-                    ))}
+                    {MONTHS_FULL.map((m, i) => (<SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>))}
                   </SelectContent>
                 </Select>
                 {cobradoFilter !== "total" && (
                   <Select value={String(cobradoYear)} onValueChange={(v) => setCobradoYear(Number(v))}>
-                    <SelectTrigger className="h-7 text-xs w-20">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {availableYears.map((y) => (
-                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                      ))}
+                      {availableYears.map((y) => (<SelectItem key={y} value={String(y)}>{y}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 )}
@@ -211,7 +261,6 @@ export default function Dashboard() {
           </Card>
         </motion.div>
 
-        {/* Balance de Caja - global real */}
         <motion.div custom={4} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -229,9 +278,7 @@ export default function Dashboard() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">📊 Facturación Mensual {currentYear}</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">📊 Facturación Mensual {currentYear}</CardTitle></CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -249,17 +296,13 @@ export default function Dashboard() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">💰 Distribución de Pagos</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">💰 Distribución de Pagos</CardTitle></CardHeader>
           <CardContent>
             <div className="h-[300px] flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i]} />
-                    ))}
+                    {pieData.map((_, i) => (<Cell key={i} fill={PIE_COLORS[i]} />))}
                   </Pie>
                   <Tooltip />
                 </PieChart>
@@ -282,17 +325,11 @@ export default function Dashboard() {
                   .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
                 const isSuspendido = clienteIdsSuspendidos.has(c.id);
                 return (
-                  <div
-                    key={c.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
-                    onClick={() => navigate(`/clientes/${c.id}`)}
-                  >
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors" onClick={() => navigate(`/clientes/${c.id}`)}>
                     <div>
                       <span className="font-medium">{c.nombre} {c.apellido}</span>
                       <span className="text-xs text-muted-foreground ml-2">DNI: {c.dni}</span>
-                      {isSuspendido && (
-                        <Badge variant="secondary" className="ml-2 text-[10px] bg-muted-foreground/20">⏸ Suspendido</Badge>
-                      )}
+                      {isSuspendido && (<Badge variant="secondary" className="ml-2 text-[10px] bg-muted-foreground/20">⏸ Suspendido</Badge>)}
                     </div>
                     <Badge variant="destructive">${deuda.toLocaleString()}</Badge>
                   </div>
