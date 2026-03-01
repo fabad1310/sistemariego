@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ArrowLeft, CreditCard, DollarSign, PauseCircle, PlayCircle, MessageSquare, ImagePlus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -24,6 +25,7 @@ export default function MesDetalle() {
   const { id: clienteId, mesId } = useParams<{ id: string; mesId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const [pagoForm, setPagoForm] = useState({
     monto: "",
@@ -292,8 +294,8 @@ export default function MesDetalle() {
           </p>
         </div>
 
-        {/* Override button */}
-        {!suspendido && (
+        {/* Override button - admin only */}
+        {isAdmin && !suspendido && (
           <Dialog open={overrideOpen} onOpenChange={(open) => {
             setOverrideOpen(open);
             if (open) setOverrideValue(String((mes as any)?.monto_override || totalCalc));
@@ -342,7 +344,7 @@ export default function MesDetalle() {
           </Dialog>
         )}
 
-        {!suspendido && !pagado && (
+        {isAdmin && !suspendido && !pagado && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm"><PauseCircle className="h-4 w-4 mr-2" /> Suspender</Button>
@@ -359,7 +361,7 @@ export default function MesDetalle() {
             </AlertDialogContent>
           </AlertDialog>
         )}
-        {suspendido && (
+        {isAdmin && suspendido && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm"><PlayCircle className="h-4 w-4 mr-2" /> Reactivar</Button>
@@ -380,8 +382,8 @@ export default function MesDetalle() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
-          {/* Quincenas - editable even if paid */}
-          {!suspendido && (
+          {/* Quincenas - admin only */}
+          {isAdmin && !suspendido && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">📅 Ingreso de Quincenas (Minutos)</CardTitle>
@@ -520,8 +522,8 @@ export default function MesDetalle() {
             </CardContent>
           </Card>
 
-          {/* Payment form - available even on paid months */}
-          {!suspendido && (
+          {/* Payment form - admin only */}
+          {isAdmin && !suspendido && (
             <Card>
               <CardHeader><CardTitle className="text-base">💰 Registrar Pago</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -565,6 +567,7 @@ export default function MesDetalle() {
           <Card>
             <CardHeader><CardTitle className="text-base">📝 Observaciones</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              {isAdmin && (
               <div className="space-y-3">
                 <Textarea placeholder="Escribir observación..." value={obsText} onChange={(e) => setObsText(e.target.value)} />
                 <div className="flex items-center gap-2">
@@ -579,6 +582,7 @@ export default function MesDetalle() {
                   {obsMutation.isPending ? "Guardando..." : "Agregar Observación"}
                 </Button>
               </div>
+              )}
               {observaciones && observaciones.length > 0 && (
                 <div className="space-y-3 border-t pt-3">
                   {observaciones.map((obs: any) => (

@@ -18,6 +18,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useAuth } from "@/contexts/AuthContext";
 
 const clienteSchema = z.object({
   nombre: z.string().min(2, "Mínimo 2 caracteres"),
@@ -35,6 +36,7 @@ type ClienteForm = z.infer<typeof clienteSchema>;
 export default function Clientes() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const [search, setSearch] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [open, setOpen] = useState(false);
@@ -136,6 +138,7 @@ export default function Clientes() {
           <p className="text-sm text-muted-foreground">👥 Gestión de clientes del sistema de riego</p>
         </div>
         <div className="flex gap-2">
+          {isAdmin && (
           <Dialog open={globalOpen} onOpenChange={setGlobalOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
@@ -183,7 +186,9 @@ export default function Clientes() {
               </div>
             </DialogContent>
           </Dialog>
+          )}
 
+          {isAdmin && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -231,6 +236,7 @@ export default function Clientes() {
               </Form>
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </div>
 

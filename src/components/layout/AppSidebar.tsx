@@ -7,10 +7,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt } from "lucide-react";
+import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Badge } from "@/components/ui/badge";
 
 const navItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
@@ -22,11 +23,14 @@ const navItems = [
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { signOut, isAdmin, isReadOnly, user } = useAuth();
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  const displayName = user?.email?.split("@")[0] ?? "usuario";
 
   return (
     <Sidebar>
@@ -65,13 +69,26 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
 
-      <SidebarFooter className="p-3">
+      <SidebarFooter className="p-3 space-y-2">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-sidebar-foreground/70">
+          <span className="font-medium capitalize">{displayName}</span>
+          <Badge variant={isAdmin ? "default" : "secondary"} className="text-[9px] px-1.5 py-0">
+            {isAdmin ? "ADMIN" : "VISITA"}
+          </Badge>
+        </div>
         <button
           onClick={() => setDark(!dark)}
           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
         >
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           <span>{dark ? "Modo claro" : "Modo oscuro"}</span>
+        </button>
+        <button
+          onClick={() => signOut()}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>Cerrar sesión</span>
         </button>
       </SidebarFooter>
     </Sidebar>
