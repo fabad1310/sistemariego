@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { z } from "zod";
+import { useAuth } from "@/contexts/AuthContext";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -43,6 +44,7 @@ const MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Se
 
 export default function Gastos() {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const [search, setSearch] = useState("");
   const [filtroMetodo, setFiltroMetodo] = useState<string>("todos");
   const [filtroFechaDesde, setFiltroFechaDesde] = useState("");
@@ -216,6 +218,7 @@ export default function Gastos() {
           <h1 className="text-2xl font-bold">Gastos</h1>
           <p className="text-sm text-muted-foreground">💸 Módulo contable de gastos</p>
         </div>
+        {isAdmin && (
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" /> Nuevo Gasto</Button>
@@ -272,6 +275,7 @@ export default function Gastos() {
             </Form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Summary card */}
@@ -341,7 +345,7 @@ export default function Gastos() {
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
                         <Button size="sm" variant="ghost" onClick={() => setDetailGasto(g)}><Eye className="h-4 w-4" /></Button>
-                        {g.estado === "confirmado" && (
+                        {isAdmin && g.estado === "confirmado" && (
                           <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(g)}><Pencil className="h-4 w-4" /></Button>
                         )}
                       </div>
@@ -398,6 +402,7 @@ export default function Gastos() {
                 </div>
               )}
 
+              {isAdmin && (
               <div className="space-y-2">
                 <Textarea placeholder="Agregar observación..." value={obsText} onChange={(e) => setObsText(e.target.value)} />
                 <div className="flex gap-2">
@@ -413,9 +418,10 @@ export default function Gastos() {
                   </Button>
                 </div>
               </div>
+              )}
 
-              {/* Anular button */}
-              {detailGasto.estado === "confirmado" && (
+              {/* Anular button - admin only */}
+              {isAdmin && detailGasto.estado === "confirmado" && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="destructive" className="w-full">

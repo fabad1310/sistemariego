@@ -14,6 +14,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useNavigate } from "react-router-dom";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MONTHS_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -27,6 +28,7 @@ const cardVariant = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
@@ -161,7 +163,8 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego</p>
         </div>
         
-        {/* Admin Fee Button */}
+        {/* Admin Fee Button - admin only */}
+        {isAdmin && (
         <Dialog open={adminFeeOpen} onOpenChange={(open) => { setAdminFeeOpen(open); if (open) setAdminFeeValue(String(montoAdmin)); }}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
@@ -195,6 +198,7 @@ export default function Dashboard() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* KPI Cards */}

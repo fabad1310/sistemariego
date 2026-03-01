@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { z } from "zod";
+import { useAuth } from "@/contexts/AuthContext";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -43,6 +44,7 @@ export default function ClienteDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [configOpen, setConfigOpen] = useState(false);
@@ -342,9 +344,11 @@ export default function ClienteDetalle() {
             )}
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={handleOpenEditCliente}>
-          <Pencil className="h-4 w-4 mr-2" /> Editar Cliente
-        </Button>
+        {isAdmin && (
+          <Button variant="outline" size="sm" onClick={handleOpenEditCliente}>
+            <Pencil className="h-4 w-4 mr-2" /> Editar Cliente
+          </Button>
+        )}
       </div>
 
       {/* Edit Client Dialog */}
@@ -416,7 +420,8 @@ export default function ClienteDetalle() {
           </SelectContent>
         </Select>
 
-        {/* Create plan - available if there are months to add */}
+        {/* Create plan - admin only */}
+        {isAdmin && (
         <Dialog open={configOpen} onOpenChange={(open) => {
           setConfigOpen(open);
           if (open) {
@@ -487,8 +492,9 @@ export default function ClienteDetalle() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
 
-        {configExiste && (
+        {isAdmin && configExiste && (
           <Button variant="outline" onClick={handleOpenEditConfig}>
             <Pencil className="h-4 w-4 mr-2" /> Editar Configuración {selectedYear}
           </Button>
