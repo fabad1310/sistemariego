@@ -33,10 +33,21 @@ export default function Reportes() {
     },
   });
 
-  const { data: meses } = useQuery({
+  // For monthly chart: filtered by year
+  const { data: mesesYear } = useQuery({
     queryKey: ["meses_servicio_all", year],
     queryFn: async () => {
       const { data, error } = await supabase.from("meses_servicio").select("*").eq("anio", year);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // For debtors: ALL months across all years up to current date
+  const { data: allMeses } = useQuery({
+    queryKey: ["meses_servicio_all_years"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("meses_servicio").select("*");
       if (error) throw error;
       return data;
     },
@@ -51,14 +62,16 @@ export default function Reportes() {
     },
   });
 
-  // Debtors - only up to current month, active service
-  const maxMonth = year === currentYear ? currentMonth : 12;
+  // Debtors: TOTAL HISTORICAL DEBT up to current date (all years)
+  const mesesHastaHoy = allMeses?.filter((m) => {
+    if ((m as any).estado_servicio === "suspendido") return false;
+    if (m.anio < currentYear) return true;
+    if (m.anio === currentYear && m.mes <= currentMonth) return true;
+    return false;
+  }) ?? [];
+
   const deudoresAll = clientes?.map((c) => {
-    const mesesCliente = meses?.filter((m) =>
-      m.cliente_id === c.id &&
-      m.mes <= maxMonth &&
-      (m as any).estado_servicio !== "suspendido"
-    ) ?? [];
+    const mesesCliente = mesesHastaHoy.filter((m) => m.cliente_id === c.id);
     const deuda = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0).reduce((s, m) => s + Number(m.saldo_pendiente), 0);
     const mesesPendientes = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0);
     return {
@@ -66,19 +79,19 @@ export default function Reportes() {
       deuda,
       mesesPendientes,
       nombre_dueno: (c as any).nombre_dueno || "",
-      nombre_propiedad: (c as any).nombre_propiedad || "",
+      numero_ramal: (c as any).numero_ramal || "",
       nombre_regante: (c as any).nombre_regante || "",
     };
   }).filter((c) => c.deuda > 0).sort((a, b) => b.deuda - a.deuda) ?? [];
 
-  // Filter deudores by search
+  // Filter deudores by search (nombre, DNI, numero_ramal)
   const deudores = deudoresAll.filter((d) => {
     if (!deudorSearch) return true;
     const q = deudorSearch.toLowerCase();
     return (
       `${d.nombre} ${d.apellido}`.toLowerCase().includes(q) ||
       d.nombre_dueno.toLowerCase().includes(q) ||
-      d.nombre_propiedad.toLowerCase().includes(q) ||
+      d.numero_ramal.toLowerCase().includes(q) ||
       d.nombre_regante.toLowerCase().includes(q) ||
       d.dni.toLowerCase().includes(q)
     );
@@ -86,7 +99,7 @@ export default function Reportes() {
 
   const monthlyGlobal = MONTH_NAMES.map((name, i) => {
     const mesNum = i + 1;
-    const mesesMes = meses?.filter((m) => m.mes === mesNum) ?? [];
+    const mesesMes = mesesYear?.filter((m) => m.mes === mesNum) ?? [];
     return {
       name,
       facturado: mesesMes.reduce((s, m) => s + Number(m.total_calculado), 0),
@@ -100,20 +113,20 @@ export default function Reportes() {
     const rows = deudores.map((d) => ({
       "Titular Riego": `${d.nombre} ${d.apellido}`,
       "Nombre Dueño": d.nombre_dueno || "—",
-      "Propiedad": d.nombre_propiedad || "—",
+      "Nº Ramal": d.numero_ramal || "—",
       "Regante": d.nombre_regante || "—",
       "Total Deuda": d.deuda,
       "Meses Adeudados": d.mesesPendientes.map((m) => `${MONTH_FULL[m.mes - 1]} ${m.anio}`).join(", "),
     }));
 
     if (rows.length === 0) {
-      rows.push({ "Titular Riego": "Sin deudores", "Nombre Dueño": "", "Propiedad": "", "Regante": "", "Total Deuda": 0, "Meses Adeudados": "" });
+      rows.push({ "Titular Riego": "Sin deudores", "Nombre Dueño": "", "Nº Ramal": "", "Regante": "", "Total Deuda": 0, "Meses Adeudados": "" });
     }
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Deudores");
-    XLSX.writeFile(wb, `reporte_deudores_${year}.xlsx`);
+    XLSX.writeFile(wb, `reporte_deudores_historico.xlsx`);
   };
 
   // Export global monthly report
@@ -184,11 +197,11 @@ export default function Reportes() {
         <TabsContent value="deudores">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">⚠️ Clientes con Deuda — {year} (hasta {MONTH_NAMES[maxMonth - 1]})</CardTitle>
+              <CardTitle className="text-base">⚠️ Deuda Total Histórica (hasta la fecha)</CardTitle>
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Buscar titular, dueño, propiedad..." value={deudorSearch} onChange={(e) => setDeudorSearch(e.target.value)} className="pl-8 w-[260px]" />
+                  <Input placeholder="Buscar por nombre, DNI, ramal..." value={deudorSearch} onChange={(e) => setDeudorSearch(e.target.value)} className="pl-8 w-[260px]" />
                 </div>
                 <Button variant="outline" size="sm" onClick={exportDeudores}>
                   <Download className="h-4 w-4 mr-2" /> Excel
@@ -202,7 +215,7 @@ export default function Reportes() {
                     <TableRow>
                       <TableHead>Titular de Riego</TableHead>
                       <TableHead>Dueño</TableHead>
-                      <TableHead>Propiedad</TableHead>
+                      <TableHead>Nº Ramal</TableHead>
                       <TableHead>Regante</TableHead>
                       <TableHead>Meses Pend.</TableHead>
                       <TableHead className="text-right">Deuda Total</TableHead>
@@ -213,12 +226,12 @@ export default function Reportes() {
                       <TableRow key={d.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/clientes/${d.id}`)}>
                         <TableCell className="font-medium">{d.nombre} {d.apellido}</TableCell>
                         <TableCell className="text-sm">{d.nombre_dueno || "—"}</TableCell>
-                        <TableCell className="text-sm">{d.nombre_propiedad || "—"}</TableCell>
+                        <TableCell className="text-sm">{d.numero_ramal || "—"}</TableCell>
                         <TableCell className="text-sm">{d.nombre_regante || "—"}</TableCell>
                         <TableCell>
                           <div className="flex gap-1 flex-wrap">
                             {d.mesesPendientes.map(m => (
-                              <Badge key={m.id} variant="outline" className="text-[10px]">{MONTH_NAMES[m.mes - 1]}</Badge>
+                              <Badge key={m.id} variant="outline" className="text-[10px]">{MONTH_NAMES[m.mes - 1]} {m.anio}</Badge>
                             ))}
                           </div>
                         </TableCell>
@@ -230,7 +243,7 @@ export default function Reportes() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores en {year} (hasta {MONTH_NAMES[maxMonth - 1]})</p>
+                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores hasta la fecha</p>
               )}
             </CardContent>
           </Card>

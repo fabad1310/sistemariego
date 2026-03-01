@@ -20,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import ImageLightbox from "@/components/ImageLightbox";
 
 const gastoSchema = z.object({
   nombre_gasto: z.string().min(2, "Mínimo 2 caracteres").max(200),
@@ -54,6 +55,7 @@ export default function Gastos() {
   const [editGasto, setEditGasto] = useState<any>(null);
   const [obsText, setObsText] = useState("");
   const [obsFile, setObsFile] = useState<File | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const form = useForm<GastoForm>({
     resolver: zodResolver(gastoSchema),
@@ -71,10 +73,7 @@ export default function Gastos() {
   const { data: gastos, isLoading } = useQuery({
     queryKey: ["gastos"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("gastos")
-        .select("*")
-        .order("fecha_pago", { ascending: false });
+      const { data, error } = await supabase.from("gastos").select("*").order("fecha_pago", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -84,11 +83,7 @@ export default function Gastos() {
     queryKey: ["observaciones_gasto", detailGasto?.id],
     enabled: !!detailGasto?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("observaciones_gasto")
-        .select("*")
-        .eq("gasto_id", detailGasto!.id)
-        .order("fecha_creacion", { ascending: false });
+      const { data, error } = await supabase.from("observaciones_gasto").select("*").eq("gasto_id", detailGasto!.id).order("fecha_creacion", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -197,7 +192,6 @@ export default function Gastos() {
     setEditGasto(g);
   };
 
-  // Filtering
   const filtered = gastos?.filter((g: any) => {
     const matchSearch = g.nombre_gasto.toLowerCase().includes(search.toLowerCase()) ||
       g.pagado_por.toLowerCase().includes(search.toLowerCase());
@@ -212,6 +206,8 @@ export default function Gastos() {
 
   return (
     <div>
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
         <div className="flex-1">
@@ -392,7 +388,12 @@ export default function Gastos() {
                     <div key={o.id} className="p-3 rounded-lg bg-muted/50 text-sm">
                       {o.texto && <p>{o.texto}</p>}
                       {o.imagen_url && (
-                        <img src={o.imagen_url} alt="Observación" className="mt-2 rounded-lg max-h-40 object-cover" />
+                        <img
+                          src={o.imagen_url}
+                          alt="Observación"
+                          className="mt-2 rounded-lg max-h-40 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setLightboxSrc(o.imagen_url)}
+                        />
                       )}
                       <p className="text-[10px] text-muted-foreground mt-1">
                         {new Date(o.fecha_creacion).toLocaleString("es-AR")}
