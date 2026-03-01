@@ -8,13 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, AlertTriangle, TrendingUp, Banknote, Wallet, Settings2 } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Banknote, Wallet, Settings2, Download } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import * as XLSX from "xlsx";
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MONTHS_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -71,6 +72,16 @@ export default function Dashboard() {
       const { data, error } = await supabase.from("configuracion_global").select("*");
       if (error) throw error;
       return data as any[];
+    },
+  });
+
+  const { data: allPagos } = useQuery({
+    queryKey: ["pagos_all_export"],
+    enabled: isAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("pagos").select("*").order("fecha_pago_real", { ascending: true });
+      if (error) throw error;
+      return data;
     },
   });
 
@@ -154,6 +165,76 @@ export default function Dashboard() {
     ? "Total Cobrado"
     : `Cobrado ${MONTHS_FULL[parseInt(cobradoFilter) - 1]} ${cobradoYear}`;
 
+  // Export full database to Excel
+  const exportDatabase = () => {
+    if (!clientes || !allMeses || !allPagos) {
+      toast.error("Datos aún cargando...");
+      return;
+    }
+
+    // Sheet 1: Clients summary
+    const clientRows = clientes.map((c) => {
+      const mesesCliente = allMeses.filter((m) => m.cliente_id === c.id);
+      const totalPagadoHist = mesesCliente.reduce((s, m) => s + Number(m.total_pagado), 0);
+      const mesesPagados = mesesCliente.filter((m) => m.estado_mes === "pagado").length;
+      const mesesImpagos = mesesCliente.filter((m) => m.estado_mes !== "pagado" && (m as any).estado_servicio !== "suspendido").length;
+      const deudaTotal = mesesCliente
+        .filter((m) => {
+          if ((m as any).estado_servicio === "suspendido") return false;
+          if (m.anio < currentYear) return true;
+          if (m.anio === currentYear && m.mes <= currentMonth) return true;
+          return false;
+        })
+        .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+      return {
+        "Nombre": `${c.nombre} ${c.apellido}`,
+        "DNI": c.dni,
+        "Nº Ramal": (c as any).numero_ramal || "—",
+        "Total Pagado Histórico": totalPagadoHist,
+        "Meses Pagados": mesesPagados,
+        "Meses Impagos": mesesImpagos,
+        "Deuda Actual Total": deudaTotal,
+      };
+    });
+
+    // Sheet 2: Monthly detail
+    const mesRows = allMeses.map((m) => {
+      const cliente = clientes.find((c) => c.id === m.cliente_id);
+      return {
+        "Cliente": cliente ? `${cliente.nombre} ${cliente.apellido}` : "—",
+        "DNI": cliente?.dni || "—",
+        "Año": m.anio,
+        "Mes": MONTHS_FULL[m.mes - 1],
+        "Total Calculado": Number(m.total_calculado),
+        "Total Pagado": Number(m.total_pagado),
+        "Saldo Pendiente": Number(m.saldo_pendiente),
+        "Estado": m.estado_mes,
+        "Servicio": (m as any).estado_servicio,
+        "Override": (m as any).usa_override ? "Sí" : "No",
+      };
+    });
+
+    // Sheet 3: Payments detail
+    const pagoRows = allPagos.map((p) => {
+      const cliente = clientes.find((c) => c.id === p.cliente_id);
+      return {
+        "Cliente": cliente ? `${cliente.nombre} ${cliente.apellido}` : "—",
+        "Monto": Number(p.monto),
+        "Método": p.metodo_pago,
+        "Fecha Pago": (p as any).fecha_pago_real || "—",
+        "Recibo": p.numero_recibo || "—",
+        "Notas": p.notas || "—",
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientRows), "Clientes");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mesRows), "Meses");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pagoRows), "Pagos");
+    XLSX.writeFile(wb, `base_datos_riego_${new Date().toISOString().split("T")[0]}.xlsx`);
+    toast.success("Base de datos exportada ✅");
+  };
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
@@ -163,42 +244,49 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego</p>
         </div>
         
-        {/* Admin Fee Button - admin only */}
-        {isAdmin && (
-        <Dialog open={adminFeeOpen} onOpenChange={(open) => { setAdminFeeOpen(open); if (open) setAdminFeeValue(String(montoAdmin)); }}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Settings2 className="h-4 w-4 mr-2" />
-              Cobro Administrativo: ${montoAdmin.toLocaleString()}
+        <div className="flex gap-2">
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={exportDatabase}>
+              <Download className="h-4 w-4 mr-2" /> Exportar Base de Datos
             </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>⚙️ Monto Cobro Administrativo Mensual</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los clientes.
-              </p>
-              <div>
-                <Label>Monto Administrativo ($)</Label>
-                <Input
-                  type="number" min="0" step="0.01" placeholder="0.00"
-                  value={adminFeeValue}
-                  onChange={(e) => setAdminFeeValue(e.target.value)}
-                />
-              </div>
-              <div className="p-3 rounded-lg bg-muted text-sm">
-                <p>💡 Valor actual: <strong>${montoAdmin.toLocaleString()}</strong></p>
-                <p>Nuevo valor: <strong>${(Number(adminFeeValue) || 0).toLocaleString()}</strong></p>
-              </div>
-              <Button className="w-full" onClick={() => adminFeeMutation.mutate()} disabled={adminFeeMutation.isPending}>
-                {adminFeeMutation.isPending ? "Actualizando..." : "Actualizar y Recalcular Meses Pendientes"}
+          )}
+
+          {isAdmin && (
+          <Dialog open={adminFeeOpen} onOpenChange={(open) => { setAdminFeeOpen(open); if (open) setAdminFeeValue(String(montoAdmin)); }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Settings2 className="h-4 w-4 mr-2" />
+                Cobro Administrativo: ${montoAdmin.toLocaleString()}
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        )}
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>⚙️ Monto Cobro Administrativo Mensual</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los clientes.
+                </p>
+                <div>
+                  <Label>Monto Administrativo ($)</Label>
+                  <Input
+                    type="number" min="0" step="0.01" placeholder="0.00"
+                    value={adminFeeValue}
+                    onChange={(e) => setAdminFeeValue(e.target.value)}
+                  />
+                </div>
+                <div className="p-3 rounded-lg bg-muted text-sm">
+                  <p>💡 Valor actual: <strong>${montoAdmin.toLocaleString()}</strong></p>
+                  <p>Nuevo valor: <strong>${(Number(adminFeeValue) || 0).toLocaleString()}</strong></p>
+                </div>
+                <Button className="w-full" onClick={() => adminFeeMutation.mutate()} disabled={adminFeeMutation.isPending}>
+                  {adminFeeMutation.isPending ? "Actualizando..." : "Actualizar y Recalcular Meses Pendientes"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +31,7 @@ const editClienteSchema = z.object({
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   estado: z.enum(["activo", "inactivo"]),
   nombre_dueno: z.string().optional(),
-  nombre_propiedad: z.string().optional(),
+  numero_ramal: z.string().optional(),
   nombre_regante: z.string().optional(),
 });
 type EditClienteForm = z.infer<typeof editClienteSchema>;
@@ -43,15 +43,18 @@ const defaultQuincenaFields = {
 export default function ClienteDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
+  
+  // Preserve year from navigation state
+  const initialYear = (location.state as any)?.selectedYear ?? currentYear;
+  const [selectedYear, setSelectedYear] = useState(initialYear);
   const [configOpen, setConfigOpen] = useState(false);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
   const [editClienteOpen, setEditClienteOpen] = useState(false);
 
-  // Month selection for plan creation
   const [selectedMonths, setSelectedMonths] = useState<number[]>([1,2,3,4,5,6,7,8,9,10,11,12]);
 
   const [configForm, setConfigForm] = useState({
@@ -65,7 +68,7 @@ export default function ClienteDetalle() {
 
   const editClienteForm = useForm<EditClienteForm>({
     resolver: zodResolver(editClienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", estado: "activo", nombre_dueno: "", numero_ramal: "", nombre_regante: "" },
   });
 
   const { data: cliente } = useQuery({
@@ -101,13 +104,12 @@ export default function ClienteDetalle() {
   const currentConfig = configs?.find((c) => c.anio === selectedYear);
   const hasSuspendedService = meses?.some((m) => (m as any).estado_servicio === "suspendido") ?? false;
 
-  // Edit client mutation - NO DNI unique check
   const editClienteMutation = useMutation({
     mutationFn: async (values: EditClienteForm) => {
       const { error } = await supabase.from("clientes").update({
         nombre: values.nombre, apellido: values.apellido, dni: values.dni,
         telefono: values.telefono || null, email: values.email || null, estado: values.estado,
-        nombre_dueno: values.nombre_dueno || null, nombre_propiedad: values.nombre_propiedad || null, nombre_regante: values.nombre_regante || null,
+        nombre_dueno: values.nombre_dueno || null, numero_ramal: values.numero_ramal || null, nombre_regante: values.nombre_regante || null,
       } as any).eq("id", id!);
       if (error) throw error;
     },
@@ -120,7 +122,6 @@ export default function ClienteDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al actualizar"),
   });
 
-  // Create plan mutation - with selected months
   const createPlanMutation = useMutation({
     mutationFn: async () => {
       const vhp = Number(configForm.valor_hora_precaria);
@@ -155,7 +156,6 @@ export default function ClienteDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al crear plan"),
   });
 
-  // Edit config mutation
   const editConfigMutation = useMutation({
     mutationFn: async () => {
       if (!currentConfig) throw new Error("No hay configuración para editar");
@@ -198,7 +198,7 @@ export default function ClienteDetalle() {
       editClienteForm.reset({
         nombre: cliente.nombre, apellido: cliente.apellido, dni: cliente.dni,
         telefono: cliente.telefono || "", email: cliente.email || "", estado: cliente.estado as "activo" | "inactivo",
-        nombre_dueno: (cliente as any).nombre_dueno || "", nombre_propiedad: (cliente as any).nombre_propiedad || "",
+        nombre_dueno: (cliente as any).nombre_dueno || "", numero_ramal: (cliente as any).numero_ramal || "",
         nombre_regante: (cliente as any).nombre_regante || "",
       });
     }
@@ -238,7 +238,6 @@ export default function ClienteDetalle() {
     const horasP = totalMinP > 0 ? Math.ceil(totalMinP / 60) : 0;
     const horasE = totalMinE > 0 ? Math.ceil(totalMinE / 60) : 0;
     const totalRiego = (horasP * vhp) + (horasE * vhe);
-    // Admin fee only if base > 0
     const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
     const totalMes = totalRiego + montoAdminFinal;
     const totalAnual = totalMes * selectedMonths.length;
@@ -337,8 +336,8 @@ export default function ClienteDetalle() {
                 <Badge variant={cliente.estado === "activo" ? "default" : "destructive"} className="ml-2 text-[10px]">
                   {cliente.estado === "activo" ? "🟢 Activo" : "🔴 Inactivo"}
                 </Badge>
-                {(cliente as any).nombre_propiedad && (
-                  <span className="ml-2">🏡 {(cliente as any).nombre_propiedad}</span>
+                {(cliente as any).numero_ramal && (
+                  <span className="ml-2">🔢 Ramal: {(cliente as any).numero_ramal}</span>
                 )}
               </>
             )}
@@ -392,8 +391,8 @@ export default function ClienteDetalle() {
               <FormField control={editClienteForm.control} name="nombre_dueno" render={({ field }) => (
                 <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-              <FormField control={editClienteForm.control} name="nombre_propiedad" render={({ field }) => (
-                <FormItem><FormLabel>Nombre de Propiedad</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              <FormField control={editClienteForm.control} name="numero_ramal" render={({ field }) => (
+                <FormItem><FormLabel>Número de Ramal</FormLabel><FormControl><Input placeholder="Ej: R-15" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <FormField control={editClienteForm.control} name="nombre_regante" render={({ field }) => (
                 <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
@@ -420,12 +419,10 @@ export default function ClienteDetalle() {
           </SelectContent>
         </Select>
 
-        {/* Create plan - admin only */}
         {isAdmin && (
         <Dialog open={configOpen} onOpenChange={(open) => {
           setConfigOpen(open);
           if (open) {
-            // Pre-select only months that don't exist yet
             const available = [1,2,3,4,5,6,7,8,9,10,11,12].filter(m => !existingMeses.has(m));
             setSelectedMonths(available);
           }
@@ -444,7 +441,6 @@ export default function ClienteDetalle() {
                 Seleccione los meses a crear e ingrese tarifas y minutos por quincena.
               </p>
 
-              {/* Month selector */}
               <div>
                 <Label className="text-sm font-medium">📅 Meses a crear</Label>
                 <div className="grid grid-cols-4 gap-2 mt-2">
@@ -572,25 +568,27 @@ export default function ClienteDetalle() {
           const esPagado = m.estado_mes === "pagado";
           const esSuspendido = (m as any).estado_servicio === "suspendido";
           const tieneOverride = (m as any).usa_override === true;
+          const esInactivo = Number(m.total_calculado) === 0 && !esSuspendido && Number(m.total_pagado) === 0;
           return (
             <motion.div key={m.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
               <Card
                 className={`cursor-pointer hover:shadow-md transition-all border-2 ${
-                  esSuspendido ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
+                  esInactivo ? "border-muted/50 bg-muted/30 opacity-50 grayscale"
+                    : esSuspendido ? "border-muted-foreground/30 bg-muted-foreground/10 opacity-60"
                     : esPagado ? "border-success/40 bg-success/5"
                     : "border-destructive/20 bg-destructive/5"
                 }`}
-                onClick={() => navigate(`/clientes/${id}/mes/${m.id}`)}
+                onClick={() => navigate(`/clientes/${id}/mes/${m.id}`, { state: { selectedYear } })}
               >
                 <CardContent className="p-3 text-center">
                   <p className="text-xs font-medium text-muted-foreground">{MONTH_NAMES[m.mes - 1]}</p>
                   <p className="text-sm font-bold mt-1">
-                    {esSuspendido ? "⏸" : esPagado ? "🟢" : "🔴"}
-                    {tieneOverride && " ⚡"}
+                    {esInactivo ? "❌" : esSuspendido ? "⏸" : esPagado ? "🟢" : "🔴"}
+                    {tieneOverride && !esInactivo && " ⚡"}
                   </p>
                   <p className="text-xs mt-1">${Number(m.total_calculado).toLocaleString()}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {esSuspendido ? "Suspendido" : `Pagado: $${Number(m.total_pagado).toLocaleString()}`}
+                    {esInactivo ? "Sin actividad" : esSuspendido ? "Suspendido" : `Pagado: $${Number(m.total_pagado).toLocaleString()}`}
                   </p>
                 </CardContent>
               </Card>

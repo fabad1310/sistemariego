@@ -24,8 +24,8 @@ export type Database = {
           id: string
           nombre: string
           nombre_dueno: string | null
-          nombre_propiedad: string | null
           nombre_regante: string | null
+          numero_ramal: string | null
           telefono: string | null
           updated_at: string
         }
@@ -38,8 +38,8 @@ export type Database = {
           id?: string
           nombre: string
           nombre_dueno?: string | null
-          nombre_propiedad?: string | null
           nombre_regante?: string | null
+          numero_ramal?: string | null
           telefono?: string | null
           updated_at?: string
         }
@@ -52,8 +52,8 @@ export type Database = {
           id?: string
           nombre?: string
           nombre_dueno?: string | null
-          nombre_propiedad?: string | null
           nombre_regante?: string | null
+          numero_ramal?: string | null
           telefono?: string | null
           updated_at?: string
         }

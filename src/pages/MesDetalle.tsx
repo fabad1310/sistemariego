@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useMemo, useCallback } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,14 +18,18 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import ImageLightbox from "@/components/ImageLightbox";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 export default function MesDetalle() {
   const { id: clienteId, mesId } = useParams<{ id: string; mesId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const [pagoForm, setPagoForm] = useState({
     monto: "",
@@ -33,7 +37,7 @@ export default function MesDetalle() {
     numero_recibo: "",
     fecha_transferencia: "",
     notas: "",
-    fecha_pago_real: new Date().toISOString().split("T")[0], // NEW: defaults to today
+    fecha_pago_real: new Date().toISOString().split("T")[0],
   });
 
   const [q1Form, setQ1Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
@@ -41,7 +45,6 @@ export default function MesDetalle() {
   const [obsText, setObsText] = useState("");
   const [obsFile, setObsFile] = useState<File | null>(null);
 
-  // Override state
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideValue, setOverrideValue] = useState("");
 
@@ -113,7 +116,6 @@ export default function MesDetalle() {
     const totalPrec = horasFinalPrec * valorHoraPrec;
     const totalEmp = horasFinalEmp * valorHoraEmp;
     const totalRiego = totalPrec + totalEmp;
-    // Admin fee only if base > 0
     const montoAdminRaw = Number((mes as any)?.monto_administrativo || 0);
     const montoAdmin = totalRiego > 0 ? montoAdminRaw : 0;
     const totalMensual = totalRiego + montoAdmin;
@@ -202,7 +204,6 @@ export default function MesDetalle() {
     onError: (err: any) => toast.error(err.message || "Error al guardar quincena"),
   });
 
-  // Override mutation
   const overrideMutation = useMutation({
     mutationFn: async (params: { usa_override: boolean; monto_override?: number }) => {
       const updateData: any = { usa_override: params.usa_override };
@@ -212,7 +213,6 @@ export default function MesDetalle() {
         updateData.saldo_pendiente = Math.max(0, params.monto_override - Number(mes?.total_pagado || 0));
         updateData.estado_mes = updateData.saldo_pendiente <= 0 ? "pagado" : "pendiente";
       } else if (!params.usa_override) {
-        // Restore calculated value — need to recalculate from quincenas
         const totalRiego = (Number(mes?.horas_precaria_final || 0) * Number(config?.valor_hora_discriminada || 0)) +
           (Number(mes?.horas_empadronada_final || 0) * Number(config?.valor_hora_no_discriminada || 0));
         const montoAdmin = totalRiego > 0 ? Number((mes as any)?.monto_administrativo || 0) : 0;
@@ -268,11 +268,19 @@ export default function MesDetalle() {
   const suspendido = (mes as any)?.estado_servicio === "suspendido";
   const usaOverride = (mes as any)?.usa_override === true;
 
+  // Navigate back preserving year
+  const goBack = useCallback(() => {
+    const selectedYear = (location.state as any)?.selectedYear;
+    navigate(`/clientes/${clienteId}`, { state: selectedYear ? { selectedYear } : undefined });
+  }, [navigate, clienteId, location.state]);
+
   return (
     <div>
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
-        <Button variant="ghost" size="icon" onClick={() => navigate(`/clientes/${clienteId}`)}>
+        <Button variant="ghost" size="icon" onClick={goBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
@@ -294,7 +302,6 @@ export default function MesDetalle() {
           </p>
         </div>
 
-        {/* Override button - admin only */}
         {isAdmin && !suspendido && (
           <Dialog open={overrideOpen} onOpenChange={(open) => {
             setOverrideOpen(open);
@@ -389,7 +396,6 @@ export default function MesDetalle() {
                 <CardTitle className="text-base">📅 Ingreso de Quincenas (Minutos)</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Quincena 1 */}
                 <div className="p-3 rounded-lg border bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-sm">Quincena 1</span>
@@ -420,7 +426,6 @@ export default function MesDetalle() {
                   </Button>
                 </div>
 
-                {/* Quincena 2 */}
                 <div className="p-3 rounded-lg border bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-sm">Quincena 2</span>
@@ -588,7 +593,14 @@ export default function MesDetalle() {
                   {observaciones.map((obs: any) => (
                     <div key={obs.id} className="p-3 rounded-lg bg-muted/50 text-sm">
                       {obs.texto && <p>{obs.texto}</p>}
-                      {obs.imagen_url && <img src={obs.imagen_url} alt="Observación" className="mt-2 rounded max-h-48 object-cover" />}
+                      {obs.imagen_url && (
+                        <img
+                          src={obs.imagen_url}
+                          alt="Observación"
+                          className="mt-2 rounded max-h-48 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setLightboxSrc(obs.imagen_url)}
+                        />
+                      )}
                       <p className="text-xs text-muted-foreground mt-1">
                         {new Date(obs.fecha_creacion).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </p>

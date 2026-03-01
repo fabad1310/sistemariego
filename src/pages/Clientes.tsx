@@ -27,7 +27,7 @@ const clienteSchema = z.object({
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   nombre_dueno: z.string().optional(),
-  nombre_propiedad: z.string().optional(),
+  numero_ramal: z.string().optional(),
   nombre_regante: z.string().optional(),
 });
 
@@ -45,7 +45,7 @@ export default function Clientes() {
 
   const form = useForm<ClienteForm>({
     resolver: zodResolver(clienteSchema),
-    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", nombre_dueno: "", nombre_propiedad: "", nombre_regante: "" },
+    defaultValues: { nombre: "", apellido: "", dni: "", telefono: "", email: "", nombre_dueno: "", numero_ramal: "", nombre_regante: "" },
   });
 
   const { data: clientes, isLoading } = useQuery({
@@ -57,7 +57,6 @@ export default function Clientes() {
     },
   });
 
-  // Check suspension status for each client
   const { data: mesesAll } = useQuery({
     queryKey: ["meses_servicio_suspension_check"],
     queryFn: async () => {
@@ -80,7 +79,7 @@ export default function Clientes() {
         telefono: values.telefono || null,
         email: values.email || null,
         nombre_dueno: values.nombre_dueno || null,
-        nombre_propiedad: values.nombre_propiedad || null,
+        numero_ramal: values.numero_ramal || null,
         nombre_regante: values.nombre_regante || null,
       } as any);
       if (error) throw error;
@@ -124,7 +123,7 @@ export default function Clientes() {
       c.nombre.toLowerCase().includes(search.toLowerCase()) ||
       c.apellido.toLowerCase().includes(search.toLowerCase()) ||
       c.dni.includes(search) ||
-      ((c as any).nombre_propiedad || "").toLowerCase().includes(search.toLowerCase());
+      ((c as any).numero_ramal || "").toLowerCase().includes(search.toLowerCase());
     const matchEstado = filtroEstado === "todos" || c.estado === filtroEstado;
     return matchSearch && matchEstado;
   });
@@ -223,8 +222,8 @@ export default function Clientes() {
                   <FormField control={form.control} name="nombre_dueno" render={({ field }) => (
                     <FormItem><FormLabel>Nombre del Dueño</FormLabel><FormControl><Input placeholder="Nombre del dueño" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
-                  <FormField control={form.control} name="nombre_propiedad" render={({ field }) => (
-                    <FormItem><FormLabel>Nombre de Propiedad</FormLabel><FormControl><Input placeholder="Finca Los Álamos" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormField control={form.control} name="numero_ramal" render={({ field }) => (
+                    <FormItem><FormLabel>Número de Ramal</FormLabel><FormControl><Input placeholder="Ej: R-15" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="nombre_regante" render={({ field }) => (
                     <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input placeholder="Nombre del regante" {...field} /></FormControl><FormMessage /></FormItem>
@@ -243,7 +242,7 @@ export default function Clientes() {
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por nombre, apellido, DNI o propiedad..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar por nombre, apellido, DNI o número de ramal..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={filtroEstado} onValueChange={setFiltroEstado}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Estado" /></SelectTrigger>
@@ -284,8 +283,8 @@ export default function Clientes() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground">DNI: {c.dni}</p>
-                        {(c as any).nombre_propiedad && (
-                          <p className="text-xs text-muted-foreground">🏡 {(c as any).nombre_propiedad}</p>
+                        {(c as any).numero_ramal && (
+                          <p className="text-xs text-muted-foreground">🔢 Ramal: {(c as any).numero_ramal}</p>
                         )}
                         {c.telefono && <p className="text-xs text-muted-foreground">{c.telefono}</p>}
                       </div>
