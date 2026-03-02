@@ -38,6 +38,10 @@ export default function Dashboard() {
   const [adminFeeOpen, setAdminFeeOpen] = useState(false);
   const [adminFeeValue, setAdminFeeValue] = useState("");
 
+  // Date cutoff for debt
+  const [corteAnio, setCorteAnio] = useState(currentYear);
+  const [corteMes, setCorteMes] = useState(currentMonth);
+
   const { data: allMeses } = useQuery({
     queryKey: ["meses_servicio_all"],
     queryFn: async () => {
@@ -110,14 +114,15 @@ export default function Dashboard() {
 
   const clientesActivos = clientes?.filter((c) => c.estado === "activo").length ?? 0;
 
-  const mesesHastaActual = allMeses?.filter((m) => {
+  // Debt calculated up to the selected cutoff
+  const mesesHastaCorte = allMeses?.filter((m) => {
     if ((m as any).estado_servicio === "suspendido") return false;
-    if (m.anio < currentYear) return true;
-    if (m.anio === currentYear && m.mes <= currentMonth) return true;
+    if (m.anio < corteAnio) return true;
+    if (m.anio === corteAnio && m.mes <= corteMes) return true;
     return false;
   }) ?? [];
 
-  const totalDeuda = mesesHastaActual
+  const totalDeuda = mesesHastaCorte
     .filter((m) => Number(m.saldo_pendiente) > 0)
     .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
 
@@ -135,7 +140,7 @@ export default function Dashboard() {
   const balanceCaja = totalCobradoGlobal - totalGastos;
 
   const clienteIdsConDeuda = new Set(
-    mesesHastaActual.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
+    mesesHastaCorte.filter((m) => Number(m.saldo_pendiente) > 0).map((m) => m.cliente_id)
   );
   const clientesConDeuda = clientes?.filter((c) => clienteIdsConDeuda.has(c.id)) ?? [];
 
@@ -165,26 +170,26 @@ export default function Dashboard() {
     ? "Total Cobrado"
     : `Cobrado ${MONTHS_FULL[parseInt(cobradoFilter) - 1]} ${cobradoYear}`;
 
-  // Export full database to Excel
+  // Export full database to Excel with date cutoff
   const exportDatabase = () => {
     if (!clientes || !allMeses || !allPagos) {
       toast.error("Datos aún cargando...");
       return;
     }
 
-    // Sheet 1: Clients summary
+    const mesesHastaExport = allMeses.filter((m) => {
+      if (m.anio < corteAnio) return true;
+      if (m.anio === corteAnio && m.mes <= corteMes) return true;
+      return false;
+    });
+
     const clientRows = clientes.map((c) => {
-      const mesesCliente = allMeses.filter((m) => m.cliente_id === c.id);
+      const mesesCliente = mesesHastaExport.filter((m) => m.cliente_id === c.id);
       const totalPagadoHist = mesesCliente.reduce((s, m) => s + Number(m.total_pagado), 0);
       const mesesPagados = mesesCliente.filter((m) => m.estado_mes === "pagado").length;
       const mesesImpagos = mesesCliente.filter((m) => m.estado_mes !== "pagado" && (m as any).estado_servicio !== "suspendido").length;
       const deudaTotal = mesesCliente
-        .filter((m) => {
-          if ((m as any).estado_servicio === "suspendido") return false;
-          if (m.anio < currentYear) return true;
-          if (m.anio === currentYear && m.mes <= currentMonth) return true;
-          return false;
-        })
+        .filter((m) => (m as any).estado_servicio !== "suspendido")
         .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
       return {
         "Nombre": `${c.nombre} ${c.apellido}`,
@@ -197,8 +202,7 @@ export default function Dashboard() {
       };
     });
 
-    // Sheet 2: Monthly detail
-    const mesRows = allMeses.map((m) => {
+    const mesRows = mesesHastaExport.map((m) => {
       const cliente = clientes.find((c) => c.id === m.cliente_id);
       return {
         "Cliente": cliente ? `${cliente.nombre} ${cliente.apellido}` : "—",
@@ -214,7 +218,6 @@ export default function Dashboard() {
       };
     });
 
-    // Sheet 3: Payments detail
     const pagoRows = allPagos.map((p) => {
       const cliente = clientes.find((c) => c.id === p.cliente_id);
       return {
@@ -231,7 +234,7 @@ export default function Dashboard() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientRows), "Clientes");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mesRows), "Meses");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pagoRows), "Pagos");
-    XLSX.writeFile(wb, `base_datos_riego_${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(wb, `base_datos_riego_hasta_${MONTHS_FULL[corteMes - 1]}_${corteAnio}.xlsx`);
     toast.success("Base de datos exportada ✅");
   };
 
@@ -241,7 +244,7 @@ export default function Dashboard() {
         <SidebarTrigger />
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">💧 Resumen del sistema de riego</p>
+          <p className="text-sm text-muted-foreground">💧 Riego Miraflores — Resumen del sistema</p>
         </div>
         
         <div className="flex gap-2">
@@ -289,6 +292,27 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Date cutoff filter */}
+      <div className="flex items-center gap-3 mb-6 p-3 rounded-lg bg-muted/50 border">
+        <Label className="text-sm font-medium whitespace-nowrap">📅 Deuda hasta:</Label>
+        <Select value={String(corteMes)} onValueChange={(v) => setCorteMes(Number(v))}>
+          <SelectTrigger className="w-[130px] h-8 text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {MONTHS_FULL.map((m, i) => (
+              <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={String(corteAnio)} onValueChange={(v) => setCorteAnio(Number(v))}>
+          <SelectTrigger className="w-[90px] h-8 text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {[...availableYears, currentYear + 1].filter((v, i, a) => a.indexOf(v) === i).sort().map((y) => (
+              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariant}>
@@ -319,7 +343,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">🔴 ${totalDeuda.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">Hasta {MONTHS[currentMonth - 1]} {currentYear}</p>
+              <p className="text-xs text-muted-foreground mt-1">Hasta {MONTHS[corteMes - 1]} {corteAnio}</p>
             </CardContent>
           </Card>
         </motion.div>
@@ -407,12 +431,12 @@ export default function Dashboard() {
       {clientesConDeuda.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente (hasta {MONTHS[currentMonth - 1]} {currentYear})</CardTitle>
+            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente (hasta {MONTHS[corteMes - 1]} {corteAnio})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {clientesConDeuda.slice(0, 10).map((c) => {
-                const deuda = mesesHastaActual
+                const deuda = mesesHastaCorte
                   .filter((m) => m.cliente_id === c.id && Number(m.saldo_pendiente) > 0)
                   .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
                 const isSuspendido = clienteIdsSuspendidos.has(c.id);

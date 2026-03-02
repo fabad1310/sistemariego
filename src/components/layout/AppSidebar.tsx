@@ -40,8 +40,8 @@ export function AppSidebar() {
             <Droplets className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-tight">AquaGest</span>
-            <span className="text-[10px] text-sidebar-foreground/60">Gestión de Riego</span>
+            <span className="text-sm font-bold tracking-tight">Riego Miraflores</span>
+            <span className="text-[10px] text-sidebar-foreground/60">Sistema de Gestión</span>
           </div>
         </div>
       </SidebarHeader>

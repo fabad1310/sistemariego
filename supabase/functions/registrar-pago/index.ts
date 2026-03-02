@@ -47,7 +47,6 @@ serve(async (req) => {
     if (!fecha_pago_real || !DATE_REGEX.test(String(fecha_pago_real))) {
       throw new Error("fecha_pago_real es obligatoria (formato YYYY-MM-DD)");
     }
-    // Validate not future date
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     const fechaReal = new Date(fecha_pago_real + "T12:00:00");
@@ -72,8 +71,6 @@ serve(async (req) => {
       .single();
 
     if (mesError || !mes) throw new Error("Mes de servicio no encontrado");
-
-    // Verify cliente_id matches the mes
     if (mes.cliente_id !== cliente_id) throw new Error("El cliente no corresponde al mes de servicio");
 
     let remaining = monto;
@@ -86,7 +83,7 @@ serve(async (req) => {
     const newSaldo = Math.max(0, currentSaldo - remaining);
     const newEstado = newSaldo <= 0 ? "pagado" : "pendiente";
 
-    // Insert payment record for current month WITH fecha_pago_real
+    // Insert payment record for current month
     const { error: pagoError } = await supabase.from("pagos").insert({
       cliente_id,
       mes_servicio_id,
@@ -112,23 +109,34 @@ serve(async (req) => {
 
     remaining -= amountForThisMonth;
 
-    // Handle surplus — apply to next pending months
+    // Handle surplus — apply to ALL next pending months ACROSS YEARS (chronological order)
     if (remaining > 0) {
+      // Query all pending months for this client that come AFTER the current month chronologically
+      // Using (anio, mes) ordering to cross year boundaries
       const { data: nextMeses, error: nextError } = await supabase
         .from("meses_servicio")
         .select("*")
         .eq("cliente_id", cliente_id)
-        .eq("anio", mes.anio)
-        .gt("mes", mes.mes)
         .eq("estado_mes", "pendiente")
+        .neq("id", mes_servicio_id)
+        .order("anio", { ascending: true })
         .order("mes", { ascending: true });
 
       if (nextError) throw nextError;
 
-      for (const nextMes of (nextMeses || [])) {
+      // Filter to only months that come AFTER the current month chronologically
+      const futureMonths = (nextMeses || []).filter((m: any) => {
+        if (m.anio > mes.anio) return true;
+        if (m.anio === mes.anio && m.mes > mes.mes) return true;
+        return false;
+      });
+
+      for (const nextMes of futureMonths) {
         if (remaining <= 0) break;
 
         const nextSaldo = Number(nextMes.saldo_pendiente);
+        if (nextSaldo <= 0) continue;
+
         const applyAmount = Math.min(remaining, nextSaldo);
 
         const { error: surplusPayErr } = await supabase.from("pagos").insert({
@@ -138,7 +146,7 @@ serve(async (req) => {
           metodo_pago,
           numero_recibo: null,
           fecha_transferencia: null,
-          notas: `Excedente aplicado desde ${getMesName(mes.mes)}`,
+          notas: `Excedente aplicado desde ${getMesName(mes.mes)} ${mes.anio}`,
           fecha_pago_real,
         });
         if (surplusPayErr) throw surplusPayErr;

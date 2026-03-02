@@ -39,7 +39,7 @@ export default function Login() {
               <Droplets className="h-7 w-7" />
             </div>
           </div>
-          <CardTitle className="text-xl">AquaGest</CardTitle>
+          <CardTitle className="text-xl">Riego Miraflores</CardTitle>
           <p className="text-sm text-muted-foreground">Sistema de Gestión de Riego</p>
         </CardHeader>
         <CardContent>
