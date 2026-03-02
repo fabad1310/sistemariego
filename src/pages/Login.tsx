@@ -36,7 +36,7 @@ export default function Login() {
         <CardHeader className="text-center space-y-2">
           <div className="flex justify-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Droplets className="h-7 w-7" />
+              <Droplets className="h-[40px] w-[40px]" />
             </div>
           </div>
           <CardTitle className="text-xl">Riego Miraflores</CardTitle>
@@ -51,8 +51,8 @@ export default function Login() {
                 placeholder="admin / visita"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-              />
+                autoComplete="username" />
+              
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>
@@ -62,19 +62,19 @@ export default function Login() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
+                autoComplete="current-password" />
+              
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Ingresando..." : (
-                <>
+              {loading ? "Ingresando..." :
+              <>
                   <LogIn className="h-4 w-4 mr-2" /> Ingresar
                 </>
-              )}
+              }
             </Button>
           </form>
         </CardContent>
       </Card>
-    </div>
-  );
+    </div>);
+
 }
