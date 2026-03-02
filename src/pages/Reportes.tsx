@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,12 +10,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useNavigate } from "react-router-dom";
-import { Download, Search } from "lucide-react";
+import { Download, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import * as XLSX from "xlsx";
 
 const MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MONTH_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+const PAGE_SIZE = 50;
 
 export default function Reportes() {
   const navigate = useNavigate();
@@ -23,6 +26,13 @@ export default function Reportes() {
   const currentMonth = new Date().getMonth() + 1;
   const [year, setYear] = useState(currentYear);
   const [deudorSearch, setDeudorSearch] = useState("");
+
+  // Date cutoff filter for debt
+  const [corteAnio, setCorteAnio] = useState(currentYear);
+  const [corteMes, setCorteMes] = useState(currentMonth);
+
+  // Pagination for historial
+  const [histPage, setHistPage] = useState(1);
 
   const { data: clientes } = useQuery({
     queryKey: ["clientes"],
@@ -33,7 +43,6 @@ export default function Reportes() {
     },
   });
 
-  // For monthly chart: filtered by year
   const { data: mesesYear } = useQuery({
     queryKey: ["meses_servicio_all", year],
     queryFn: async () => {
@@ -43,7 +52,6 @@ export default function Reportes() {
     },
   });
 
-  // For debtors: ALL months across all years up to current date
   const { data: allMeses } = useQuery({
     queryKey: ["meses_servicio_all_years"],
     queryFn: async () => {
@@ -53,25 +61,30 @@ export default function Reportes() {
     },
   });
 
-  const { data: pagos } = useQuery({
-    queryKey: ["pagos_all", year],
+  // Historial: paginated query for ALL pagos (no year filter)
+  const { data: historialPagos, isLoading: histLoading } = useQuery({
+    queryKey: ["pagos_historial", histPage],
     queryFn: async () => {
-      const { data, error } = await supabase.from("pagos").select("*").gte("fecha_registro", `${year}-01-01`).lte("fecha_registro", `${year}-12-31`);
+      const { data, error } = await supabase
+        .from("pagos")
+        .select("*, meses_servicio!inner(anio, mes)")
+        .order("fecha_pago_real", { ascending: false })
+        .range(0, histPage * PAGE_SIZE - 1);
       if (error) throw error;
-      return data;
+      return data as any[];
     },
   });
 
-  // Debtors: TOTAL HISTORICAL DEBT up to current date (all years)
-  const mesesHastaHoy = allMeses?.filter((m) => {
+  // Debtors: filtered by cutoff date
+  const mesesHastaCorte = allMeses?.filter((m) => {
     if ((m as any).estado_servicio === "suspendido") return false;
-    if (m.anio < currentYear) return true;
-    if (m.anio === currentYear && m.mes <= currentMonth) return true;
+    if (m.anio < corteAnio) return true;
+    if (m.anio === corteAnio && m.mes <= corteMes) return true;
     return false;
   }) ?? [];
 
   const deudoresAll = clientes?.map((c) => {
-    const mesesCliente = mesesHastaHoy.filter((m) => m.cliente_id === c.id);
+    const mesesCliente = mesesHastaCorte.filter((m) => m.cliente_id === c.id);
     const deuda = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0).reduce((s, m) => s + Number(m.saldo_pendiente), 0);
     const mesesPendientes = mesesCliente.filter(m => Number(m.saldo_pendiente) > 0);
     return {
@@ -84,7 +97,6 @@ export default function Reportes() {
     };
   }).filter((c) => c.deuda > 0).sort((a, b) => b.deuda - a.deuda) ?? [];
 
-  // Filter deudores by search (nombre, DNI, numero_ramal)
   const deudores = deudoresAll.filter((d) => {
     if (!deudorSearch) return true;
     const q = deudorSearch.toLowerCase();
@@ -108,7 +120,6 @@ export default function Reportes() {
     };
   });
 
-  // Export debtors to Excel - ONE ROW PER CLIENT, grouped
   const exportDeudores = () => {
     const rows = deudores.map((d) => ({
       "Titular Riego": `${d.nombre} ${d.apellido}`,
@@ -126,10 +137,9 @@ export default function Reportes() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Deudores");
-    XLSX.writeFile(wb, `reporte_deudores_historico.xlsx`);
+    XLSX.writeFile(wb, `reporte_deudores_hasta_${MONTH_FULL[corteMes - 1]}_${corteAnio}.xlsx`);
   };
 
-  // Export global monthly report
   const exportGlobal = () => {
     const ws = XLSX.utils.json_to_sheet(monthlyGlobal.map(m => ({
       Mes: m.name,
@@ -142,13 +152,17 @@ export default function Reportes() {
     XLSX.writeFile(wb, `reporte_mensual_${year}.xlsx`);
   };
 
+  const totalDeudaCorte = deudoresAll.reduce((s, d) => s + d.deuda, 0);
+  const availableYears = [...new Set(allMeses?.map((m) => m.anio) ?? [currentYear])].sort();
+  const hasMoreHist = (historialPagos?.length ?? 0) >= histPage * PAGE_SIZE;
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Reportes</h1>
-          <p className="text-sm text-muted-foreground">📊 Análisis financiero del sistema de riego</p>
+          <p className="text-sm text-muted-foreground">📊 Análisis financiero — Riego Miraflores</p>
         </div>
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
           <SelectTrigger className="w-[120px]">
@@ -196,16 +210,41 @@ export default function Reportes() {
 
         <TabsContent value="deudores">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">⚠️ Deuda Total Histórica (hasta la fecha)</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Buscar por nombre, DNI, ramal..." value={deudorSearch} onChange={(e) => setDeudorSearch(e.target.value)} className="pl-8 w-[260px]" />
+            <CardHeader className="space-y-3">
+              <div className="flex flex-row items-center justify-between gap-3">
+                <CardTitle className="text-base">⚠️ Deuda Histórica</CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Buscar por nombre, DNI, ramal..." value={deudorSearch} onChange={(e) => setDeudorSearch(e.target.value)} className="pl-8 w-[260px]" />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={exportDeudores}>
+                    <Download className="h-4 w-4 mr-2" /> Excel
+                  </Button>
                 </div>
-                <Button variant="outline" size="sm" onClick={exportDeudores}>
-                  <Download className="h-4 w-4 mr-2" /> Excel
-                </Button>
+              </div>
+              {/* Date cutoff selector */}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+                <Label className="text-sm font-medium whitespace-nowrap">📅 Mostrar deuda hasta:</Label>
+                <Select value={String(corteMes)} onValueChange={(v) => setCorteMes(Number(v))}>
+                  <SelectTrigger className="w-[140px] h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MONTH_FULL.map((m, i) => (
+                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(corteAnio)} onValueChange={(v) => setCorteAnio(Number(v))}>
+                  <SelectTrigger className="w-[100px] h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[...availableYears, currentYear + 1].filter((v, i, a) => a.indexOf(v) === i).sort().map((y) => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Badge variant="outline" className="text-xs ml-auto">
+                  Deuda total: <strong className="ml-1">${totalDeudaCorte.toLocaleString()}</strong>
+                </Badge>
               </div>
             </CardHeader>
             <CardContent>
@@ -243,7 +282,7 @@ export default function Reportes() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores hasta la fecha</p>
+                <p className="text-center text-muted-foreground py-8">🎉 No hay deudores hasta {MONTH_FULL[corteMes - 1]} {corteAnio}</p>
               )}
             </CardContent>
           </Card>
@@ -252,36 +291,62 @@ export default function Reportes() {
         <TabsContent value="historial">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">📋 Historial de Pagos — {year}</CardTitle>
+              <CardTitle className="text-base">📋 Historial Completo de Pagos</CardTitle>
             </CardHeader>
             <CardContent>
-              {pagos && pagos.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Monto</TableHead>
-                      <TableHead>Método</TableHead>
-                      <TableHead>Recibo</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pagos.slice(0, 50).map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="text-sm">
-                          {new Date(((p as any).fecha_pago_real || p.fecha_registro) + "T12:00:00").toLocaleDateString("es-AR")}
-                        </TableCell>
-                        <TableCell className="font-medium">${Number(p.monto).toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}</Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{p.numero_recibo || "—"}</TableCell>
+              {historialPagos && historialPagos.length > 0 ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Mes</TableHead>
+                        <TableHead>Monto</TableHead>
+                        <TableHead>Método</TableHead>
+                        <TableHead>Recibo</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {historialPagos.map((p: any) => {
+                        const cliente = clientes?.find((c) => c.id === p.cliente_id);
+                        const mesInfo = p.meses_servicio;
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="text-sm">
+                              {new Date((p.fecha_pago_real || p.fecha_registro) + "T12:00:00").toLocaleDateString("es-AR")}
+                            </TableCell>
+                            <TableCell className="text-sm font-medium">
+                              {cliente ? `${cliente.nombre} ${cliente.apellido}` : "—"}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {mesInfo ? `${MONTH_NAMES[mesInfo.mes - 1]} ${mesInfo.anio}` : "—"}
+                            </TableCell>
+                            <TableCell className="font-medium">${Number(p.monto).toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}</Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{p.numero_recibo || "—"}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  {hasMoreHist && (
+                    <div className="flex justify-center mt-4">
+                      <Button variant="outline" onClick={() => setHistPage(p => p + 1)} disabled={histLoading}>
+                        {histLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Cargar más
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : histLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
               ) : (
-                <p className="text-center text-muted-foreground py-8">No hay pagos registrados en {year}</p>
+                <p className="text-center text-muted-foreground py-8">No hay pagos registrados</p>
               )}
             </CardContent>
           </Card>
