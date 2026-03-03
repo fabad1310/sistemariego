@@ -148,7 +148,11 @@ export default function ClienteDetalle() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["configuraciones", id] });
       queryClient.invalidateQueries({ queryKey: ["meses_servicio", id, selectedYear] });
-      toast.success(`Plan creado con ${data?.meses_creados} meses 🌱`);
+      const mensajePlan = data?.saldo_a_favor_aplicado > 0
+        ? `Plan creado con ${data?.meses_creados} meses 🌱 — Se aplicaron $${data.saldo_a_favor_aplicado.toLocaleString("es-AR")} de saldo a favor ✅`
+        : `Plan creado con ${data?.meses_creados} meses 🌱`;
+      toast.success(mensajePlan);
+      queryClient.invalidateQueries({ queryKey: ["cliente", id] });
       setConfigOpen(false);
       setConfigForm({ valor_hora_precaria: "", valor_hora_empadronada: "", ...defaultQuincenaFields });
       setSelectedMonths([1,2,3,4,5,6,7,8,9,10,11,12]);
@@ -550,6 +554,21 @@ export default function ClienteDetalle() {
             </div>
             <Progress value={progreso} className="h-2" />
             <p className="text-xs text-muted-foreground text-center mt-1">{progreso.toFixed(0)}% cobrado</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Saldo a Favor */}
+      {cliente && Number((cliente as any).saldo_a_favor ?? 0) > 0 && (
+        <Card className="mb-4 border-2 border-emerald-500/40 bg-emerald-500/5">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">💚 Saldo a Favor Acumulado</p>
+              <p className="text-xs text-muted-foreground">Se aplicará automáticamente al crear el próximo plan anual</p>
+            </div>
+            <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+              ${Number((cliente as any).saldo_a_favor).toLocaleString("es-AR")}
+            </p>
           </CardContent>
         </Card>
       )}

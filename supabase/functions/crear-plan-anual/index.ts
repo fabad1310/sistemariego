@@ -26,7 +26,7 @@ serve(async (req) => {
       cliente_id, anio,
       valor_hora_precaria, valor_hora_empadronada,
       q1_precaria, q1_empadronada, q2_precaria, q2_empadronada,
-      meses_seleccionados, // NEW: array of month numbers e.g. [6,7,8] — optional, defaults to 1-12
+      meses_seleccionados,
     } = body;
 
     if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
@@ -42,7 +42,6 @@ serve(async (req) => {
       }
     }
 
-    // Validate meses_seleccionados
     let meses: number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     if (meses_seleccionados && Array.isArray(meses_seleccionados)) {
       if (meses_seleccionados.length === 0) throw new Error("Debe seleccionar al menos un mes");
@@ -54,16 +53,20 @@ serve(async (req) => {
       meses = [...new Set(meses_seleccionados)].sort((a, b) => a - b);
     }
 
+    // *** FIX SALDO A FAVOR — leer saldo_a_favor del cliente ***
     const { data: cliente, error: clienteErr } = await supabase
-      .from("clientes").select("id").eq("id", cliente_id).maybeSingle();
+      .from("clientes")
+      .select("id, saldo_a_favor")
+      .eq("id", cliente_id)
+      .maybeSingle();
     if (clienteErr || !cliente) throw new Error("Cliente no encontrado");
 
-    // Check for existing config for this year
+    const saldoAFavor = Math.max(0, Number(cliente.saldo_a_favor ?? 0));
+
     const { data: existingConfig } = await supabase
       .from("configuracion_riego_cliente").select("id")
       .eq("cliente_id", cliente_id).eq("anio", anio).maybeSingle();
 
-    // Check for existing months that would conflict (UNIQUE constraint)
     const { data: existingMeses } = await supabase
       .from("meses_servicio").select("mes")
       .eq("cliente_id", cliente_id).eq("anio", anio);
@@ -74,7 +77,6 @@ serve(async (req) => {
       throw new Error(`Ya existen los meses: ${conflictingMeses.map(m => MONTH_NAMES[m-1]).join(", ")}`);
     }
 
-    // Get current admin fee
     const { data: adminConfig } = await supabase
       .from("configuracion_global")
       .select("valor")
@@ -82,21 +84,16 @@ serve(async (req) => {
       .maybeSingle();
     const montoAdmin = Number(adminConfig?.valor ?? 0);
 
-    // Calculate hours and total
     const totalMinPrecaria = q1_precaria + q2_precaria;
     const totalMinEmpadronada = q1_empadronada + q2_empadronada;
     const horasPrecFinal = totalMinPrecaria > 0 ? Math.ceil(totalMinPrecaria / 60) : 0;
     const horasEmpFinal = totalMinEmpadronada > 0 ? Math.ceil(totalMinEmpadronada / 60) : 0;
     const totalRiego = (horasPrecFinal * valor_hora_precaria) + (horasEmpFinal * valor_hora_empadronada);
-    
-    // Admin fee ONLY if base > 0
     const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
     const totalCalculado = totalRiego + montoAdminFinal;
 
-    // 1. Create or reuse config
     let configId: string;
     if (existingConfig) {
-      // Update existing config with new rates
       const { error: updateConfigErr } = await supabase
         .from("configuracion_riego_cliente")
         .update({
@@ -120,7 +117,6 @@ serve(async (req) => {
       configId = config.id;
     }
 
-    // 2. Create selected months only
     const mesesInsert = meses.map(mesNum => ({
       cliente_id, configuracion_id: configId, anio, mes: mesNum,
       total_calculado: totalCalculado,
@@ -136,7 +132,6 @@ serve(async (req) => {
       .from("meses_servicio").insert(mesesInsert).select();
     if (mesesError) throw mesesError;
 
-    // 3. Create quincenas for created months
     const quincenasInsert = [];
     for (const mes of mesesCreados!) {
       quincenasInsert.push(
@@ -144,10 +139,67 @@ serve(async (req) => {
         { mes_servicio_id: mes.id, numero_quincena: 2, minutos_precaria: q2_precaria, minutos_empadronada: q2_empadronada },
       );
     }
-
     const { error: quincenasError } = await supabase
       .from("quincenas_servicio").insert(quincenasInsert);
     if (quincenasError) throw quincenasError;
+
+    // *** FIX SALDO A FAVOR — aplicar saldo acumulado a los nuevos meses ***
+    let saldo_a_favor_aplicado = 0;
+    let saldoRestante = saldoAFavor;
+    const today = new Date().toISOString().split("T")[0];
+
+    if (saldoAFavor > 0 && mesesCreados && mesesCreados.length > 0) {
+      const mesesOrdenados = [...mesesCreados].sort((a, b) => a.mes - b.mes);
+
+      for (const mesNuevo of mesesOrdenados) {
+        if (saldoRestante <= 0) break;
+
+        const mesSaldo = Number(mesNuevo.saldo_pendiente);
+        if (mesSaldo <= 0) continue;
+
+        const applyAmount = Math.round(Math.min(saldoRestante, mesSaldo) * 100) / 100;
+        const nuevoTotalPagado = Math.round((Number(mesNuevo.total_pagado) + applyAmount) * 100) / 100;
+        const nuevoSaldo = Math.round(Math.max(0, mesSaldo - applyAmount) * 100) / 100;
+        const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
+
+        const { error: pagoErr } = await supabase.from("pagos").insert({
+          cliente_id,
+          mes_servicio_id: mesNuevo.id,
+          monto: applyAmount,
+          metodo_pago: "efectivo",
+          numero_recibo: null,
+          fecha_transferencia: null,
+          notas: `Saldo a favor acumulado aplicado automáticamente al crear plan ${anio}`,
+          fecha_pago_real: today,
+        });
+        if (pagoErr) throw new Error("Error al registrar aplicación de saldo_a_favor: " + pagoErr.message);
+
+        const { error: updateMesErr } = await supabase
+          .from("meses_servicio")
+          .update({
+            total_pagado: nuevoTotalPagado,
+            saldo_pendiente: nuevoSaldo,
+            estado_mes: nuevoEstado,
+          })
+          .eq("id", mesNuevo.id);
+        if (updateMesErr) throw new Error("Error al actualizar mes con saldo_a_favor: " + updateMesErr.message);
+
+        saldo_a_favor_aplicado += applyAmount;
+        saldoRestante = Math.round((saldoRestante - applyAmount) * 100) / 100;
+      }
+
+      const { error: updateClienteErr } = await supabase
+        .from("clientes")
+        .update({ saldo_a_favor: saldoRestante })
+        .eq("id", cliente_id);
+      if (updateClienteErr) throw new Error("Error al actualizar saldo_a_favor del cliente: " + updateClienteErr.message);
+
+      console.log(
+        `[crear-plan-anual] Aplicados $${saldo_a_favor_aplicado} de saldo_a_favor al plan ${anio} del cliente ${cliente_id}. ` +
+        `Saldo restante: $${saldoRestante}`
+      );
+    }
+    // *** FIN FIX SALDO A FAVOR ***
 
     return new Response(
       JSON.stringify({
@@ -157,6 +209,11 @@ serve(async (req) => {
         total_por_mes: totalCalculado,
         monto_administrativo: montoAdminFinal,
         total_anual: totalCalculado * meses.length,
+        saldo_a_favor_aplicado,
+        saldo_a_favor_restante: saldoRestante,
+        mensaje: saldo_a_favor_aplicado > 0
+          ? `Se aplicaron $${saldo_a_favor_aplicado.toLocaleString("es-AR")} de saldo a favor acumulado al nuevo plan ${anio}.`
+          : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
