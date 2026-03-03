@@ -31,19 +31,15 @@ serve(async (req) => {
     const body = await req.json();
     const { mes_servicio_id, cliente_id, monto, metodo_pago, numero_recibo, fecha_transferencia, notas, fecha_pago_real } = body;
 
-    // UUID validation
     if (!mes_servicio_id || !UUID_REGEX.test(String(mes_servicio_id))) throw new Error("mes_servicio_id inválido");
     if (!cliente_id || !UUID_REGEX.test(String(cliente_id))) throw new Error("cliente_id inválido");
 
-    // Monto validation
     if (typeof monto !== "number" || !Number.isFinite(monto) || monto <= 0 || monto > MAX_MONTO) {
       throw new Error("El monto debe ser un número positivo válido (máx 100.000.000)");
     }
 
-    // Metodo pago validation
     if (!["efectivo", "transferencia"].includes(metodo_pago)) throw new Error("Método de pago inválido");
 
-    // fecha_pago_real validation (REQUIRED)
     if (!fecha_pago_real || !DATE_REGEX.test(String(fecha_pago_real))) {
       throw new Error("fecha_pago_real es obligatoria (formato YYYY-MM-DD)");
     }
@@ -52,7 +48,6 @@ serve(async (req) => {
     const fechaReal = new Date(fecha_pago_real + "T12:00:00");
     if (fechaReal > today) throw new Error("La fecha de pago no puede ser futura");
 
-    // Conditional validations
     const safeRecibo = sanitizeString(numero_recibo, 50);
     if (metodo_pago === "efectivo" && !safeRecibo) throw new Error("Número de recibo requerido para pago en efectivo");
     if (metodo_pago === "transferencia") {
@@ -63,7 +58,6 @@ serve(async (req) => {
 
     const safeNotas = sanitizeString(notas);
 
-    // Get current month
     const { data: mes, error: mesError } = await supabase
       .from("meses_servicio")
       .select("*")
@@ -77,13 +71,11 @@ serve(async (req) => {
     let excedente_aplicado = 0;
     const currentSaldo = Number(mes.saldo_pendiente);
 
-    // Apply payment to current month
     const amountForThisMonth = Math.min(remaining, currentSaldo);
     const newTotalPagado = Number(mes.total_pagado) + amountForThisMonth;
     const newSaldo = Math.max(0, currentSaldo - remaining);
     const newEstado = newSaldo <= 0 ? "pagado" : "pendiente";
 
-    // Insert payment record for current month
     const { error: pagoError } = await supabase.from("pagos").insert({
       cliente_id,
       mes_servicio_id,
@@ -96,7 +88,6 @@ serve(async (req) => {
     });
     if (pagoError) throw pagoError;
 
-    // Update current month
     const { error: updateError } = await supabase
       .from("meses_servicio")
       .update({
@@ -109,10 +100,7 @@ serve(async (req) => {
 
     remaining -= amountForThisMonth;
 
-    // Handle surplus — apply to ALL next pending months ACROSS YEARS (chronological order)
     if (remaining > 0) {
-      // Query all pending months for this client that come AFTER the current month chronologically
-      // Using (anio, mes) ordering to cross year boundaries
       const { data: nextMeses, error: nextError } = await supabase
         .from("meses_servicio")
         .select("*")
@@ -124,7 +112,6 @@ serve(async (req) => {
 
       if (nextError) throw nextError;
 
-      // Filter to only months that come AFTER the current month chronologically
       const futureMonths = (nextMeses || []).filter((m: any) => {
         if (m.anio > mes.anio) return true;
         if (m.anio === mes.anio && m.mes > mes.mes) return true;
@@ -168,6 +155,33 @@ serve(async (req) => {
         excedente_aplicado += applyAmount;
         remaining -= applyAmount;
       }
+
+      // *** FIX SALDO A FAVOR ***
+      if (remaining > 0) {
+        const { data: clienteData, error: clienteErr } = await supabase
+          .from("clientes")
+          .select("saldo_a_favor")
+          .eq("id", cliente_id)
+          .single();
+
+        if (clienteErr) throw new Error("No se pudo obtener el saldo_a_favor del cliente: " + clienteErr.message);
+
+        const saldoActual = Number(clienteData.saldo_a_favor ?? 0);
+        const nuevoSaldoAFavor = Math.round((saldoActual + remaining) * 100) / 100;
+
+        const { error: updateSaldoErr } = await supabase
+          .from("clientes")
+          .update({ saldo_a_favor: nuevoSaldoAFavor })
+          .eq("id", cliente_id);
+
+        if (updateSaldoErr) throw new Error("No se pudo guardar el saldo_a_favor: " + updateSaldoErr.message);
+
+        console.log(
+          `[registrar-pago] Excedente $${remaining} guardado como saldo_a_favor. ` +
+          `Cliente: ${cliente_id}. Nuevo saldo_a_favor: $${nuevoSaldoAFavor}`
+        );
+      }
+      // *** FIN FIX SALDO A FAVOR ***
     }
 
     return new Response(
@@ -175,8 +189,12 @@ serve(async (req) => {
         success: true,
         pago_aplicado: amountForThisMonth,
         excedente_aplicado,
+        excedente_guardado_como_saldo_a_favor: remaining > 0 ? Math.round(remaining * 100) / 100 : 0,
         saldo_restante: newSaldo,
         estado: newEstado,
+        mensaje: remaining > 0
+          ? `$${remaining.toLocaleString("es-AR")} guardados como saldo a favor. Se aplicarán automáticamente al crear el próximo plan anual.`
+          : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

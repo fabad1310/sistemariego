@@ -155,9 +155,15 @@ export default function MesDetalle() {
       queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
       queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
       queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
-      const msg = data?.excedente_aplicado
-        ? `Pago registrado 💰 Excedente de $${data.excedente_aplicado} aplicado a meses siguientes`
-        : "Pago registrado exitosamente 💰";
+      queryClient.invalidateQueries({ queryKey: ["cliente", clienteId] });
+      let msg = "Pago registrado exitosamente 💰";
+      if (data?.excedente_aplicado > 0 && data?.excedente_guardado_como_saldo_a_favor > 0) {
+        msg = `Pago registrado 💰 $${data.excedente_aplicado.toLocaleString("es-AR")} aplicados a meses siguientes. $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor.`;
+      } else if (data?.excedente_aplicado > 0) {
+        msg = `Pago registrado 💰 Excedente de $${data.excedente_aplicado.toLocaleString("es-AR")} aplicado a meses siguientes`;
+      } else if (data?.excedente_guardado_como_saldo_a_favor > 0) {
+        msg = `Pago registrado 💰 $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor para el próximo plan anual`;
+      }
       toast.success(msg);
       setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "", fecha_pago_real: new Date().toISOString().split("T")[0] });
     },

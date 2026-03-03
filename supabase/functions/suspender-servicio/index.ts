@@ -38,20 +38,29 @@ serve(async (req) => {
         .eq("id", mes_servicio_id);
       if (suspErr) throw suspErr;
 
-      const { data: futureMeses, error: futErr } = await supabase
+      // Cross-year: get ALL future pending months
+      const { data: allFutureMeses, error: futErr } = await supabase
         .from("meses_servicio").select("*")
-        .eq("cliente_id", mes.cliente_id).eq("anio", mes.anio)
-        .gt("mes", mes.mes).eq("estado_mes", "pendiente");
+        .eq("cliente_id", mes.cliente_id)
+        .eq("estado_mes", "pendiente")
+        .order("anio", { ascending: true })
+        .order("mes", { ascending: true });
       if (futErr) throw futErr;
 
-      for (const fm of (futureMeses || [])) {
+      const futureMeses = (allFutureMeses || []).filter((m: any) => {
+        if (m.anio > mes.anio) return true;
+        if (m.anio === mes.anio && m.mes > mes.mes) return true;
+        return false;
+      });
+
+      for (const fm of futureMeses) {
         await supabase.from("meses_servicio")
           .update({ estado_servicio: "suspendido", total_calculado: 0, saldo_pendiente: 0, estado_mes: "pagado", horas_precaria_final: 0, horas_empadronada_final: 0, monto_administrativo: 0 })
           .eq("id", fm.id);
       }
 
       return new Response(
-        JSON.stringify({ success: true, meses_suspendidos: (futureMeses?.length ?? 0) + 1 }),
+        JSON.stringify({ success: true, meses_suspendidos: futureMeses.length + 1 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } else {
@@ -59,7 +68,6 @@ serve(async (req) => {
         .from("configuracion_riego_cliente").select("*").eq("id", mes.configuracion_id).single();
       if (confErr || !config) throw new Error("Configuración no encontrada");
 
-      // Get current admin fee
       const { data: adminConfig } = await supabase
         .from("configuracion_global").select("valor").eq("clave", "monto_administrativo").maybeSingle();
       const montoAdmin = Number(adminConfig?.valor ?? 0);
@@ -76,8 +84,6 @@ serve(async (req) => {
         const horasPrecFinal = totalMinPrec > 0 ? Math.ceil(totalMinPrec / 60) : 0;
         const horasEmpFinal = totalMinEmp > 0 ? Math.ceil(totalMinEmp / 60) : 0;
         const totalRiego = (horasPrecFinal * valorHoraPrec) + (horasEmpFinal * valorHoraEmp);
-        
-        // Admin fee ONLY if base > 0
         const montoAdminFinal = totalRiego > 0 ? montoAdmin : 0;
         const totalCalc = totalRiego + montoAdminFinal;
         const saldo = Math.max(0, totalCalc - totalPagado);
@@ -95,18 +101,27 @@ serve(async (req) => {
 
       await recalcMonth(mes.id, Number(mes.total_pagado));
 
-      const { data: futureSusp, error: futSErr } = await supabase
+      // Cross-year: get ALL future suspended months
+      const { data: allFutureSusp, error: futSErr } = await supabase
         .from("meses_servicio").select("*")
-        .eq("cliente_id", mes.cliente_id).eq("anio", mes.anio)
-        .gt("mes", mes.mes).eq("estado_servicio", "suspendido");
+        .eq("cliente_id", mes.cliente_id)
+        .eq("estado_servicio", "suspendido")
+        .order("anio", { ascending: true })
+        .order("mes", { ascending: true });
       if (futSErr) throw futSErr;
 
-      for (const fm of (futureSusp || [])) {
+      const futureSusp = (allFutureSusp || []).filter((m: any) => {
+        if (m.anio > mes.anio) return true;
+        if (m.anio === mes.anio && m.mes > mes.mes) return true;
+        return false;
+      });
+
+      for (const fm of futureSusp) {
         await recalcMonth(fm.id, Number(fm.total_pagado));
       }
 
       return new Response(
-        JSON.stringify({ success: true, meses_reactivados: (futureSusp?.length ?? 0) + 1 }),
+        JSON.stringify({ success: true, meses_reactivados: futureSusp.length + 1 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

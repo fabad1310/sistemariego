@@ -26,6 +26,7 @@ export type Database = {
           nombre_dueno: string | null
           nombre_regante: string | null
           numero_ramal: string | null
+          saldo_a_favor: number
           telefono: string | null
           updated_at: string
         }
@@ -40,6 +41,7 @@ export type Database = {
           nombre_dueno?: string | null
           nombre_regante?: string | null
           numero_ramal?: string | null
+          saldo_a_favor?: number
           telefono?: string | null
           updated_at?: string
         }
@@ -54,6 +56,7 @@ export type Database = {
           nombre_dueno?: string | null
           nombre_regante?: string | null
           numero_ramal?: string | null
+          saldo_a_favor?: number
           telefono?: string | null
           updated_at?: string
         }
