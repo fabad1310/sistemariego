@@ -34,6 +34,9 @@ export default function Reportes() {
   // Pagination for historial
   const [histPage, setHistPage] = useState(1);
 
+  // Historial filter
+  const [historialFiltro, setHistorialFiltro] = useState<"general" | "ingresos" | "gastos">("general");
+
   const { data: clientes } = useQuery({
     queryKey: ["clientes"],
     queryFn: async () => {
@@ -62,13 +65,27 @@ export default function Reportes() {
   });
 
   // Historial: paginated query for ALL pagos (no year filter)
-  const { data: historialPagos, isLoading: histLoading } = useQuery({
+  const { data: historialPagos, isLoading: pagosLoading } = useQuery({
     queryKey: ["pagos_historial", histPage],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pagos")
         .select("*, meses_servicio!inner(anio, mes)")
         .order("fecha_pago_real", { ascending: false })
+        .range(0, histPage * PAGE_SIZE - 1);
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
+  // Historial: todos los gastos para el historial unificado
+  const { data: historialGastos, isLoading: gastosLoading } = useQuery({
+    queryKey: ["gastos_historial", histPage],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("gastos")
+        .select("*")
+        .order("fecha_pago", { ascending: false })
         .range(0, histPage * PAGE_SIZE - 1);
       if (error) throw error;
       return data as any[];
@@ -120,21 +137,99 @@ export default function Reportes() {
     };
   });
 
-  const exportDeudores = () => {
-    const rows = deudores.map((d) => ({
-      "Titular Riego": `${d.nombre} ${d.apellido}`,
-      "Nombre Dueño": d.nombre_dueno || "—",
-      "Nº Ramal": d.numero_ramal || "—",
-      "Regante": d.nombre_regante || "—",
-      "Total Deuda": d.deuda,
-      "Meses Adeudados": d.mesesPendientes.map((m) => `${MONTH_FULL[m.mes - 1]} ${m.anio}`).join(", "),
+  // Construir lista unificada de movimientos para el historial
+  const movimientosUnificados = (() => {
+    const ingresos = (historialPagos || []).map((p: any) => ({
+      id: p.id,
+      tipo: "ingreso" as const,
+      fecha: p.fecha_pago_real,
+      descripcion: (() => {
+        const cliente = clientes?.find((c) => c.id === p.cliente_id);
+        const mesInfo = p.meses_servicio;
+        const nombreCliente = cliente ? `${cliente.nombre} ${cliente.apellido}` : "—";
+        const mesPeriodo = mesInfo ? ` — ${MONTH_FULL[mesInfo.mes - 1]} ${mesInfo.anio}` : "";
+        return nombreCliente + mesPeriodo;
+      })(),
+      monto: Number(p.monto),
+      metodo_pago: p.metodo_pago,
+      referencia: p.numero_recibo || (p.notas ? p.notas.slice(0, 40) : null) || "—",
+      notas: p.notas || null,
+      raw: p,
     }));
 
+    const egresos = (historialGastos || []).map((g: any) => ({
+      id: g.id,
+      tipo: "gasto" as const,
+      fecha: g.fecha_pago,
+      descripcion: g.nombre_gasto,
+      monto: Number(g.monto),
+      metodo_pago: g.metodo_pago,
+      referencia: g.numero_recibo || (g.pagado_por ? `Pagado por: ${g.pagado_por}` : "—"),
+      notas: null,
+      estado: g.estado,
+      raw: g,
+    }));
+
+    type Movimiento = { id: any; tipo: "ingreso" | "gasto"; fecha: any; descripcion: string; monto: number; metodo_pago: any; referencia: any; notas: any; estado?: any; raw: any };
+    let lista: Movimiento[] = [];
+    if (historialFiltro === "general") lista = [...ingresos, ...egresos];
+    else if (historialFiltro === "ingresos") lista = ingresos;
+    else lista = egresos;
+
+    return lista.sort((a, b) => {
+      const da = new Date(a.fecha + "T12:00:00").getTime();
+      const db = new Date(b.fecha + "T12:00:00").getTime();
+      return db - da;
+    });
+  })();
+
+  const histLoading = pagosLoading || gastosLoading;
+
+  const exportDeudores = () => {
+    const rows = deudores.map((d) => {
+      const mesesClienteAll = mesesHastaCorte.filter((m) => m.cliente_id === d.id);
+      const mesesDeudaOrdenados = d.mesesPendientes
+        .slice()
+        .sort((a: any, b: any) => a.anio !== b.anio ? a.anio - b.anio : a.mes - b.mes);
+
+      const mesesPagados = mesesClienteAll
+        .filter((m) => m.estado_mes === "pagado")
+        .sort((a, b) => a.anio !== b.anio ? b.anio - a.anio : b.mes - a.mes);
+      const ultimoMesPagado = mesesPagados.length > 0
+        ? `${MONTH_FULL[mesesPagados[0].mes - 1]} ${mesesPagados[0].anio}`
+        : "Sin pagos registrados";
+
+      const detalleMeses = mesesDeudaOrdenados
+        .map((m: any) => `${MONTH_FULL[m.mes - 1]} ${m.anio} ($${Number(m.saldo_pendiente).toLocaleString("es-AR")})`)
+        .join(" | ");
+
+      return {
+        "Titular de Riego": `${d.nombre} ${d.apellido}`,
+        "Nombre Dueño": d.nombre_dueno || "—",
+        "Nº Ramal": d.numero_ramal || "—",
+        "Regante": d.nombre_regante || "—",
+        "DNI": d.dni,
+        "Último Mes Pagado": ultimoMesPagado,
+        "Cant. Meses Adeudados": mesesDeudaOrdenados.length,
+        "Meses que Debe (con monto)": detalleMeses || "—",
+        "Deuda Total ($)": d.deuda,
+      };
+    });
+
     if (rows.length === 0) {
-      rows.push({ "Titular Riego": "Sin deudores", "Nombre Dueño": "", "Nº Ramal": "", "Regante": "", "Total Deuda": 0, "Meses Adeudados": "" });
+      rows.push({
+        "Titular de Riego": "Sin deudores",
+        "Nombre Dueño": "—", "Nº Ramal": "—", "Regante": "—", "DNI": "—",
+        "Último Mes Pagado": "—", "Cant. Meses Adeudados": 0,
+        "Meses que Debe (con monto)": "—", "Deuda Total ($)": 0,
+      });
     }
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 28 }, { wch: 24 }, { wch: 12 }, { wch: 20 }, { wch: 12 },
+      { wch: 22 }, { wch: 10 }, { wch: 80 }, { wch: 16 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Deudores");
     XLSX.writeFile(wb, `reporte_deudores_hasta_${MONTH_FULL[corteMes - 1]}_${corteAnio}.xlsx`);
@@ -154,7 +249,7 @@ export default function Reportes() {
 
   const totalDeudaCorte = deudoresAll.reduce((s, d) => s + d.deuda, 0);
   const availableYears = [...new Set(allMeses?.map((m) => m.anio) ?? [currentYear])].sort();
-  const hasMoreHist = (historialPagos?.length ?? 0) >= histPage * PAGE_SIZE;
+  const hasMoreHist = (historialPagos?.length ?? 0) >= histPage * PAGE_SIZE || (historialGastos?.length ?? 0) >= histPage * PAGE_SIZE;
 
   return (
     <div>
@@ -169,9 +264,12 @@ export default function Reportes() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-            ))}
+            {Array.from({ length: (currentYear + 4) - 2025 + 1 }, (_, i) => currentYear + 4 - i)
+              .filter(y => y >= 2025)
+              .map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))
+            }
           </SelectContent>
         </Select>
       </div>
@@ -291,45 +389,83 @@ export default function Reportes() {
         <TabsContent value="historial">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">📋 Historial Completo de Pagos</CardTitle>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <CardTitle className="text-base">📋 Historial de Movimientos</CardTitle>
+                <div className="flex rounded-lg border overflow-hidden text-sm">
+                  <button
+                    onClick={() => setHistorialFiltro("general")}
+                    className={`px-4 py-1.5 font-medium transition-colors ${historialFiltro === "general" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                  >
+                    General
+                  </button>
+                  <button
+                    onClick={() => setHistorialFiltro("ingresos")}
+                    className={`px-4 py-1.5 font-medium transition-colors border-l ${historialFiltro === "ingresos" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                  >
+                    💚 Ingresos
+                  </button>
+                  <button
+                    onClick={() => setHistorialFiltro("gastos")}
+                    className={`px-4 py-1.5 font-medium transition-colors border-l ${historialFiltro === "gastos" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                  >
+                    🔴 Gastos
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              {historialPagos && historialPagos.length > 0 ? (
+              {movimientosUnificados.length > 0 ? (
                 <>
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Fecha</TableHead>
-                        <TableHead>Cliente</TableHead>
-                        <TableHead>Mes</TableHead>
-                        <TableHead>Monto</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Descripción</TableHead>
                         <TableHead>Método</TableHead>
-                        <TableHead>Recibo</TableHead>
+                        <TableHead>Referencia</TableHead>
+                        <TableHead className="text-right">Monto</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {historialPagos.map((p: any) => {
-                        const cliente = clientes?.find((c) => c.id === p.cliente_id);
-                        const mesInfo = p.meses_servicio;
-                        return (
-                          <TableRow key={p.id}>
-                            <TableCell className="text-sm">
-                              {new Date((p.fecha_pago_real || p.fecha_registro) + "T12:00:00").toLocaleDateString("es-AR")}
-                            </TableCell>
-                            <TableCell className="text-sm font-medium">
-                              {cliente ? `${cliente.nombre} ${cliente.apellido}` : "—"}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {mesInfo ? `${MONTH_NAMES[mesInfo.mes - 1]} ${mesInfo.anio}` : "—"}
-                            </TableCell>
-                            <TableCell className="font-medium">${Number(p.monto).toLocaleString()}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}</Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{p.numero_recibo || "—"}</TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {movimientosUnificados.map((mov) => (
+                        <TableRow key={`${mov.tipo}-${mov.id}`}>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {new Date(mov.fecha + "T12:00:00").toLocaleDateString("es-AR", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            {mov.tipo === "ingreso" ? (
+                              <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
+                                💚 Ingreso
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className={`text-[10px] ${(mov as any).estado === "anulado" ? "opacity-40" : "border-destructive/40 text-destructive"}`}>
+                                🔴 Gasto{(mov as any).estado === "anulado" ? " (Anulado)" : ""}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm font-medium max-w-[240px] truncate">
+                            {mov.descripcion}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">
+                              {mov.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate">
+                            {mov.referencia}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            <span className={mov.tipo === "ingreso" ? "text-emerald-600" : "text-destructive"}>
+                              {mov.tipo === "ingreso" ? "+" : "-"}${mov.monto.toLocaleString("es-AR")}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                   {hasMoreHist && (
@@ -346,7 +482,11 @@ export default function Reportes() {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <p className="text-center text-muted-foreground py-8">No hay pagos registrados</p>
+                <p className="text-center text-muted-foreground py-8">
+                  {historialFiltro === "general" ? "No hay movimientos registrados" :
+                   historialFiltro === "ingresos" ? "No hay ingresos registrados" :
+                   "No hay gastos registrados"}
+                </p>
               )}
             </CardContent>
           </Card>

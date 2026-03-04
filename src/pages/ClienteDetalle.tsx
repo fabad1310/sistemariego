@@ -417,9 +417,12 @@ export default function ClienteDetalle() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-            ))}
+            {Array.from({ length: (currentYear + 4) - 2025 + 1 }, (_, i) => currentYear + 4 - i)
+              .filter(y => y >= 2025)
+              .map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))
+            }
           </SelectContent>
         </Select>
 
