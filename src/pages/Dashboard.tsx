@@ -186,19 +186,33 @@ export default function Dashboard() {
     const clientRows = clientes.map((c) => {
       const mesesCliente = mesesHastaExport.filter((m) => m.cliente_id === c.id);
       const totalPagadoHist = mesesCliente.reduce((s, m) => s + Number(m.total_pagado), 0);
-      const mesesPagados = mesesCliente.filter((m) => m.estado_mes === "pagado").length;
-      const mesesImpagos = mesesCliente.filter((m) => m.estado_mes !== "pagado" && (m as any).estado_servicio !== "suspendido").length;
-      const deudaTotal = mesesCliente
-        .filter((m) => (m as any).estado_servicio !== "suspendido")
-        .reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+      const mesesPagadosCount = mesesCliente.filter((m) => m.estado_mes === "pagado").length;
+      const mesesImpagosLista = mesesCliente
+        .filter((m) => m.estado_mes !== "pagado" && (m as any).estado_servicio !== "suspendido" && Number(m.saldo_pendiente) > 0)
+        .sort((a, b) => a.anio !== b.anio ? a.anio - b.anio : a.mes - b.mes);
+      const deudaTotal = mesesImpagosLista.reduce((s, m) => s + Number(m.saldo_pendiente), 0);
+
+      const mesesPagadosLista = mesesCliente
+        .filter((m) => m.estado_mes === "pagado")
+        .sort((a, b) => a.anio !== b.anio ? b.anio - a.anio : b.mes - a.mes);
+      const ultimoMesPagado = mesesPagadosLista.length > 0
+        ? `${MONTHS_FULL[mesesPagadosLista[0].mes - 1]} ${mesesPagadosLista[0].anio}`
+        : "Sin pagos";
+
+      const detalleMesesDeuda = mesesImpagosLista
+        .map((m) => `${MONTHS_FULL[m.mes - 1]} ${m.anio} ($${Number(m.saldo_pendiente).toLocaleString("es-AR")})`)
+        .join(" | ");
+
       return {
         "Nombre": `${c.nombre} ${c.apellido}`,
         "DNI": c.dni,
         "Nº Ramal": (c as any).numero_ramal || "—",
-        "Total Pagado Histórico": totalPagadoHist,
-        "Meses Pagados": mesesPagados,
-        "Meses Impagos": mesesImpagos,
-        "Deuda Actual Total": deudaTotal,
+        "Total Pagado Histórico ($)": totalPagadoHist,
+        "Meses Pagados": mesesPagadosCount,
+        "Cant. Meses Adeudados": mesesImpagosLista.length,
+        "Último Mes Pagado": ultimoMesPagado,
+        "Meses que Debe (con monto)": detalleMesesDeuda || "Al día",
+        "Deuda Actual Total ($)": deudaTotal,
       };
     });
 
