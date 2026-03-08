@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages } from "@/lib/fetchAll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,12 +43,11 @@ export default function Dashboard() {
   const [corteAnio, setCorteAnio] = useState(currentYear);
   const [corteMes, setCorteMes] = useState(currentMonth);
 
+  // ✅ FIX: fetchAllPages pagina automáticamente, trayendo TODOS los registros sin importar cuántos sean
   const { data: allMeses } = useQuery({
     queryKey: ["meses_servicio_all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("meses_servicio").select("*");
-      if (error) throw error;
-      return data;
+      return await fetchAllPages("meses_servicio", "*");
     },
   });
 
@@ -79,13 +79,14 @@ export default function Dashboard() {
     },
   });
 
+  // ✅ FIX: fetchAllPages pagina automáticamente, trayendo TODOS los pagos sin importar cuántos sean
   const { data: allPagos } = useQuery({
     queryKey: ["pagos_all_export"],
     enabled: isAdmin,
     queryFn: async () => {
-      const { data, error } = await supabase.from("pagos").select("*").order("fecha_pago_real", { ascending: true });
-      if (error) throw error;
-      return data;
+      return await fetchAllPages("pagos", "*", (q) =>
+        q.order("fecha_pago_real", { ascending: true })
+      );
     },
   });
 
