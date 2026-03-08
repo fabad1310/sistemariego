@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages } from "@/lib/fetchAll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,12 +56,11 @@ export default function Reportes() {
     },
   });
 
+  // ✅ FIX: fetchAllPages pagina automáticamente, trayendo TODOS los registros sin importar cuántos sean
   const { data: allMeses } = useQuery({
     queryKey: ["meses_servicio_all_years"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("meses_servicio").select("*");
-      if (error) throw error;
-      return data;
+      return await fetchAllPages("meses_servicio", "*");
     },
   });
 
