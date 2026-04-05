@@ -565,7 +565,7 @@ export default function MesDetalle() {
                 </div>
                 <div>
                   <Label>📅 Fecha en que se realizó el pago</Label>
-                  <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={new Date().toISOString().split("T")[0]} />
+                  <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={localDateString()} />
                 </div>
                 <div>
                   <Label>Método de Pago</Label>
