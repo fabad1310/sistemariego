@@ -44,7 +44,7 @@ export default function MesDetalle() {
     numero_recibo: "",
     fecha_transferencia: "",
     notas: "",
-    fecha_pago_real: new Date().toISOString().split("T")[0],
+    fecha_pago_real: localDateString(),
   });
 
   const [q1Form, setQ1Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
@@ -154,7 +154,12 @@ export default function MesDetalle() {
           fecha_pago_real: pagoForm.fecha_pago_real,
         },
       });
-      if (res.error) throw res.error;
+      if (res.error) {
+        throw new Error(
+          "⚠️ Hubo un problema de conexión con el servidor. El pago puede haberse registrado de todas formas. " +
+          "Verificá en la lista de pagos antes de intentar nuevamente para evitar duplicados."
+        );
+      }
       if (res.data?.error) throw new Error(res.data.error);
       return res.data;
     },
@@ -164,7 +169,9 @@ export default function MesDetalle() {
       queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
       queryClient.invalidateQueries({ queryKey: ["cliente", clienteId] });
       let msg = "Pago registrado exitosamente 💰";
-      if (data?.excedente_aplicado > 0 && data?.excedente_guardado_como_saldo_a_favor > 0) {
+      if (data?.ya_procesado) {
+        msg = "ℹ️ Este pago ya estaba registrado (duplicado bloqueado automáticamente)";
+      } else if (data?.excedente_aplicado > 0 && data?.excedente_guardado_como_saldo_a_favor > 0) {
         msg = `Pago registrado 💰 $${data.excedente_aplicado.toLocaleString("es-AR")} aplicados a meses siguientes. $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor.`;
       } else if (data?.excedente_aplicado > 0) {
         msg = `Pago registrado 💰 Excedente de $${data.excedente_aplicado.toLocaleString("es-AR")} aplicado a meses siguientes`;
@@ -172,9 +179,13 @@ export default function MesDetalle() {
         msg = `Pago registrado 💰 $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor para el próximo plan anual`;
       }
       toast.success(msg);
-      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "", fecha_pago_real: new Date().toISOString().split("T")[0] });
+      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "", fecha_pago_real: localDateString() });
     },
-    onError: (err: any) => toast.error(err.message || "Error al registrar pago"),
+    onError: (err: any) => {
+      queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
+      toast.error(err.message || "Error al registrar pago");
+    },
   });
 
   const suspensionMutation = useMutation({
