@@ -5,7 +5,6 @@ const PAGE_SIZE = 1000;
 /**
  * Trae TODOS los registros de una tabla de Supabase superando el límite de 1000 filas.
  * Itera automáticamente con paginación hasta que no haya más datos.
- * Es la solución definitiva al límite silencioso de PostgREST.
  *
  * @param tableName - Nombre de la tabla a consultar
  * @param selectFields - Campos a seleccionar (default "*")
@@ -21,7 +20,7 @@ export async function fetchAllPages<T = any>(
   let from = 0;
 
   while (true) {
-    let query = supabase
+    let query = (supabase as any)
       .from(tableName)
       .select(selectFields)
       .range(from, from + PAGE_SIZE - 1);
@@ -37,7 +36,6 @@ export async function fetchAllPages<T = any>(
 
     allData.push(...(data as T[]));
 
-    // Si trajo menos que PAGE_SIZE, llegamos al último bloque
     if (data.length < PAGE_SIZE) break;
 
     from += PAGE_SIZE;
