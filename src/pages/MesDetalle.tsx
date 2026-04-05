@@ -22,6 +22,13 @@ import ImageLightbox from "@/components/ImageLightbox";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
+// Devuelve la fecha LOCAL correcta en formato YYYY-MM-DD.
+// No usar toISOString() porque usa UTC y en Argentina (UTC-3)
+// entre las 21:00-23:59 locales devuelve el día siguiente.
+function localDateString(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function MesDetalle() {
   const { id: clienteId, mesId } = useParams<{ id: string; mesId: string }>();
   const navigate = useNavigate();

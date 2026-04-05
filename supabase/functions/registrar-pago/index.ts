@@ -58,6 +58,51 @@ serve(async (req) => {
 
     const safeNotas = sanitizeString(notas);
 
+    // ── PROTECCIÓN A: Anti-duplicado antes de cualquier escritura ──
+    {
+      let dupQuery = supabase
+        .from("pagos")
+        .select("id, monto")
+        .eq("cliente_id", cliente_id)
+        .eq("mes_servicio_id", mes_servicio_id);
+
+      if (metodo_pago === "efectivo") {
+        dupQuery = dupQuery.eq("numero_recibo", safeRecibo!);
+      } else {
+        dupQuery = dupQuery
+          .eq("metodo_pago", "transferencia")
+          .eq("fecha_transferencia", fecha_transferencia)
+          .eq("monto", monto);
+      }
+
+      const { data: dupCheck } = await dupQuery.limit(1);
+      if (dupCheck && dupCheck.length > 0) {
+        // Ya existe – leer estado actual del mes y devolver sin procesar
+        const { data: mesActual } = await supabase
+          .from("meses_servicio")
+          .select("saldo_pendiente, estado_mes")
+          .eq("id", mes_servicio_id)
+          .single();
+
+        console.log(`[registrar-pago] Duplicado detectado. Pago existente: ${dupCheck[0].id}`);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            ya_procesado: true,
+            pago_aplicado: Number(dupCheck[0].monto),
+            excedente_aplicado: 0,
+            excedente_guardado_como_saldo_a_favor: 0,
+            saldo_restante: Number(mesActual?.saldo_pendiente ?? 0),
+            estado: mesActual?.estado_mes ?? "pendiente",
+            mensaje: "Este pago ya fue registrado anteriormente.",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Leer mes de servicio
     const { data: mes, error: mesError } = await supabase
       .from("meses_servicio")
       .select("*")
@@ -67,9 +112,15 @@ serve(async (req) => {
     if (mesError || !mes) throw new Error("Mes de servicio no encontrado");
     if (mes.cliente_id !== cliente_id) throw new Error("El cliente no corresponde al mes de servicio");
 
+    const currentSaldo = Number(mes.saldo_pendiente);
+
+    // ── PROTECCIÓN B: Mes ya pagado ──
+    if (currentSaldo <= 0) {
+      throw new Error("Este mes ya está completamente pagado (saldo $0). Para registrar un pago adelantado, ingresalo directamente desde ese mes.");
+    }
+
     let remaining = monto;
     let excedente_aplicado = 0;
-    const currentSaldo = Number(mes.saldo_pendiente);
 
     const amountForThisMonth = Math.min(remaining, currentSaldo);
     const newTotalPagado = Number(mes.total_pagado) + amountForThisMonth;
@@ -118,11 +169,29 @@ serve(async (req) => {
         return false;
       });
 
+      const notaExcedente = `Excedente aplicado desde ${getMesName(mes.mes)} ${mes.anio}`;
+
       for (const nextMes of futureMonths) {
         if (remaining <= 0) break;
 
         const nextSaldo = Number(nextMes.saldo_pendiente);
         if (nextSaldo <= 0) continue;
+
+        // ── PROTECCIÓN C: Anti-duplicado de excedente ──
+        const { data: excDup } = await supabase
+          .from("pagos")
+          .select("id")
+          .eq("cliente_id", cliente_id)
+          .eq("mes_servicio_id", nextMes.id)
+          .like("notas", `${notaExcedente}%`)
+          .limit(1);
+
+        if (excDup && excDup.length > 0) {
+          // Ya se aplicó excedente a este mes en una ejecución anterior – saltar
+          const applyAmount = Math.min(remaining, nextSaldo);
+          remaining -= applyAmount;
+          continue;
+        }
 
         const applyAmount = Math.min(remaining, nextSaldo);
 
@@ -133,7 +202,7 @@ serve(async (req) => {
           metodo_pago,
           numero_recibo: null,
           fecha_transferencia: null,
-          notas: `Excedente aplicado desde ${getMesName(mes.mes)} ${mes.anio}`,
+          notas: notaExcedente,
           fecha_pago_real,
         });
         if (surplusPayErr) throw surplusPayErr;
@@ -156,7 +225,7 @@ serve(async (req) => {
         remaining -= applyAmount;
       }
 
-      // *** FIX SALDO A FAVOR ***
+      // *** SALDO A FAVOR ***
       if (remaining > 0) {
         const { data: clienteData, error: clienteErr } = await supabase
           .from("clientes")
@@ -181,7 +250,6 @@ serve(async (req) => {
           `Cliente: ${cliente_id}. Nuevo saldo_a_favor: $${nuevoSaldoAFavor}`
         );
       }
-      // *** FIN FIX SALDO A FAVOR ***
     }
 
     return new Response(

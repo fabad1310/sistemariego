@@ -44,24 +44,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          setTimeout(() => fetchRole(session.user.id), 0);
-        } else {
+      async (event, session) => {
+        if (!session) {
+          setSession(null);
+          setUser(null);
           setRole(null);
+          setLoading(false);
+          return;
         }
+        setSession(session);
+        setUser(session.user);
+        if (session.user) setTimeout(() => fetchRole(session.user.id), 0);
         setLoading(false);
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchRole(session.user.id);
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error || !session) {
+        setSession(null); setUser(null); setRole(null);
+        setLoading(false);
+        return;
       }
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (session.expires_at && session.expires_at < nowSec) {
+        setSession(null); setUser(null); setRole(null);
+        supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+      setSession(session);
+      setUser(session.user);
+      fetchRole(session.user.id);
       setLoading(false);
     });
 
