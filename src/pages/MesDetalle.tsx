@@ -594,7 +594,14 @@ export default function MesDetalle() {
           </Card>
 
           {/* Payment form - admin only */}
-          {isAdmin && !suspendido && (
+          {isAdmin && !suspendido && pagado && (
+            <Card>
+              <CardContent className="p-4 text-center text-success font-medium">
+                ✅ Este mes está completamente pagado.
+              </CardContent>
+            </Card>
+          )}
+          {isAdmin && !suspendido && !pagado && (
             <Card>
               <CardHeader><CardTitle className="text-base">💰 Registrar Pago</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -606,8 +613,11 @@ export default function MesDetalle() {
                   )}
                 </div>
                 <div>
-                  <Label>📅 Fecha en que se realizó el pago</Label>
+                  <Label>📅 Fecha real del pago</Label>
                   <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={localDateString()} />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ingresá la fecha en que el cliente realizó el pago. Puede diferir de la fecha de ingreso al sistema.
+                  </p>
                 </div>
                 <div>
                   <Label>Método de Pago</Label>
@@ -622,13 +632,10 @@ export default function MesDetalle() {
                 {pagoForm.metodo_pago === "efectivo" && (
                   <div><Label>Número de Recibo</Label><Input placeholder="Ej: 00123" value={pagoForm.numero_recibo} onChange={(e) => setPagoForm((p) => ({ ...p, numero_recibo: e.target.value }))} /></div>
                 )}
-                {pagoForm.metodo_pago === "transferencia" && (
-                  <div><Label>Fecha de Transferencia</Label><Input type="date" value={pagoForm.fecha_transferencia} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_transferencia: e.target.value }))} /></div>
-                )}
                 <div><Label>Notas (opcional)</Label><Input placeholder="Observaciones..." value={pagoForm.notas} onChange={(e) => setPagoForm((p) => ({ ...p, notas: e.target.value }))} /></div>
-                <Button className="w-full" onClick={() => pagoMutation.mutate()} disabled={pagoMutation.isPending}>
+                <Button className="w-full" onClick={handleSubmitPago} disabled={submitLocked || pagoMutation.isPending}>
                   <CreditCard className="h-4 w-4 mr-2" />
-                  {pagoMutation.isPending ? "Registrando..." : "Registrar Pago"}
+                  {(submitLocked || pagoMutation.isPending) ? "Registrando..." : "Registrar Pago"}
                 </Button>
               </CardContent>
             </Card>
