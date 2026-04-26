@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -42,10 +42,11 @@ export default function MesDetalle() {
     monto: "",
     metodo_pago: "efectivo" as "efectivo" | "transferencia",
     numero_recibo: "",
-    fecha_transferencia: "",
     notas: "",
     fecha_pago_real: localDateString(),
   });
+
+  const [submitLocked, setSubmitLocked] = useState(false);
 
   const [q1Form, setQ1Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
   const [q2Form, setQ2Form] = useState({ minutos_precaria: "", minutos_empadronada: "" });
@@ -139,17 +140,33 @@ export default function MesDetalle() {
   const pagoMutation = useMutation({
     mutationFn: async () => {
       const monto = Number(pagoForm.monto);
-      if (monto <= 0) throw new Error("El monto debe ser mayor a 0");
+      if (!Number.isFinite(monto) || monto <= 0) throw new Error("El monto debe ser un número positivo válido");
+      if (monto > 100_000_000) throw new Error("El monto ingresado supera el límite permitido");
       if (pagoForm.metodo_pago === "efectivo" && !pagoForm.numero_recibo) throw new Error("Número de recibo requerido");
-      if (pagoForm.metodo_pago === "transferencia" && !pagoForm.fecha_transferencia) throw new Error("Fecha de transferencia requerida");
-      if (!pagoForm.fecha_pago_real) throw new Error("Fecha de pago real requerida");
+      if (!pagoForm.fecha_pago_real) throw new Error("La fecha real del pago es obligatoria");
+
+      // Pre-check anti-duplicado en el cliente (últimos 30 segundos)
+      const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+      const { data: recentPagos } = await supabase
+        .from("pagos")
+        .select("id, monto, fecha_registro")
+        .eq("mes_servicio_id", mesId!)
+        .eq("monto", monto)
+        .gte("fecha_registro", thirtySecondsAgo)
+        .limit(1);
+
+      if (recentPagos && recentPagos.length > 0) {
+        throw new Error(
+          "⚠️ Se detectó un pago idéntico registrado hace menos de 30 segundos. " +
+          "Si el pago anterior falló, actualizá la página y verificá el historial antes de reintentar."
+        );
+      }
 
       const res = await supabase.functions.invoke("registrar-pago", {
         body: {
           mes_servicio_id: mesId, cliente_id: clienteId, monto,
           metodo_pago: pagoForm.metodo_pago,
           numero_recibo: pagoForm.metodo_pago === "efectivo" ? pagoForm.numero_recibo : null,
-          fecha_transferencia: pagoForm.metodo_pago === "transferencia" ? pagoForm.fecha_transferencia : null,
           notas: pagoForm.notas || null,
           fecha_pago_real: pagoForm.fecha_pago_real,
         },
@@ -168,25 +185,50 @@ export default function MesDetalle() {
       queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
       queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
       queryClient.invalidateQueries({ queryKey: ["cliente", clienteId] });
-      let msg = "Pago registrado exitosamente 💰";
       if (data?.ya_procesado) {
-        msg = "ℹ️ Este pago ya estaba registrado (duplicado bloqueado automáticamente)";
-      } else if (data?.excedente_aplicado > 0 && data?.excedente_guardado_como_saldo_a_favor > 0) {
-        msg = `Pago registrado 💰 $${data.excedente_aplicado.toLocaleString("es-AR")} aplicados a meses siguientes. $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor.`;
-      } else if (data?.excedente_aplicado > 0) {
-        msg = `Pago registrado 💰 Excedente de $${data.excedente_aplicado.toLocaleString("es-AR")} aplicado a meses siguientes`;
-      } else if (data?.excedente_guardado_como_saldo_a_favor > 0) {
-        msg = `Pago registrado 💰 $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor para el próximo plan anual`;
+        toast.warning("⚠️ Este pago ya estaba registrado. No se realizaron cambios.", {
+          description: "Si creés que es un error, actualizá la página y verificá el historial de pagos.",
+        });
+      } else {
+        let msg = "Pago registrado exitosamente 💰";
+        if (data?.excedente_aplicado > 0 && data?.excedente_guardado_como_saldo_a_favor > 0) {
+          msg = `Pago registrado 💰 $${data.excedente_aplicado.toLocaleString("es-AR")} aplicados a meses siguientes. $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor.`;
+        } else if (data?.excedente_aplicado > 0) {
+          msg = `Pago registrado 💰 Excedente de $${data.excedente_aplicado.toLocaleString("es-AR")} aplicado a meses siguientes`;
+        } else if (data?.excedente_guardado_como_saldo_a_favor > 0) {
+          msg = `Pago registrado 💰 $${data.excedente_guardado_como_saldo_a_favor.toLocaleString("es-AR")} guardados como saldo a favor para el próximo plan anual`;
+        }
+        toast.success(msg);
       }
-      toast.success(msg);
-      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", fecha_transferencia: "", notas: "", fecha_pago_real: localDateString() });
+      setPagoForm({ monto: "", metodo_pago: "efectivo", numero_recibo: "", notas: "", fecha_pago_real: localDateString() });
     },
     onError: (err: any) => {
       queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
       queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
       toast.error(err.message || "Error al registrar pago");
     },
+    onSettled: () => {
+      setSubmitLocked(false);
+    },
   });
+
+  const handleSubmitPago = () => {
+    if (submitLocked || pagoMutation.isPending) return;
+    setSubmitLocked(true);
+    pagoMutation.mutate();
+  };
+
+  // Advertencia si el usuario intenta cerrar la pestaña durante un pago en proceso
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pagoMutation.isPending) {
+        e.preventDefault();
+        e.returnValue = "Hay un pago en proceso. ¿Estás seguro de que querés salir?";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pagoMutation.isPending]);
 
   const suspensionMutation = useMutation({
     mutationFn: async (accion: "suspender" | "reactivar") => {
@@ -242,7 +284,7 @@ export default function MesDetalle() {
         const montoAdmin = totalRiego > 0 ? Number((mes as any)?.monto_administrativo || 0) : 0;
         const totalCalc = totalRiego + montoAdmin;
         updateData.total_calculado = totalCalc;
-        updateData.saldo_pendiente = Math.max(0, totalCalc - Number(mes?.total_pagado || 0));
+        updateData.saldo_pendiente = Math.max(0, Math.round((totalCalc - Number(mes?.total_pagado || 0)) * 100) / 100);
         updateData.estado_mes = updateData.saldo_pendiente <= 0 ? "pagado" : "pendiente";
         updateData.monto_override = null;
       }
@@ -552,7 +594,14 @@ export default function MesDetalle() {
           </Card>
 
           {/* Payment form - admin only */}
-          {isAdmin && !suspendido && (
+          {isAdmin && !suspendido && pagado && (
+            <Card>
+              <CardContent className="p-4 text-center text-success font-medium">
+                ✅ Este mes está completamente pagado.
+              </CardContent>
+            </Card>
+          )}
+          {isAdmin && !suspendido && !pagado && (
             <Card>
               <CardHeader><CardTitle className="text-base">💰 Registrar Pago</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -564,8 +613,11 @@ export default function MesDetalle() {
                   )}
                 </div>
                 <div>
-                  <Label>📅 Fecha en que se realizó el pago</Label>
+                  <Label>📅 Fecha real del pago</Label>
                   <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={localDateString()} />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ingresá la fecha en que el cliente realizó el pago. Puede diferir de la fecha de ingreso al sistema.
+                  </p>
                 </div>
                 <div>
                   <Label>Método de Pago</Label>
@@ -580,13 +632,10 @@ export default function MesDetalle() {
                 {pagoForm.metodo_pago === "efectivo" && (
                   <div><Label>Número de Recibo</Label><Input placeholder="Ej: 00123" value={pagoForm.numero_recibo} onChange={(e) => setPagoForm((p) => ({ ...p, numero_recibo: e.target.value }))} /></div>
                 )}
-                {pagoForm.metodo_pago === "transferencia" && (
-                  <div><Label>Fecha de Transferencia</Label><Input type="date" value={pagoForm.fecha_transferencia} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_transferencia: e.target.value }))} /></div>
-                )}
                 <div><Label>Notas (opcional)</Label><Input placeholder="Observaciones..." value={pagoForm.notas} onChange={(e) => setPagoForm((p) => ({ ...p, notas: e.target.value }))} /></div>
-                <Button className="w-full" onClick={() => pagoMutation.mutate()} disabled={pagoMutation.isPending}>
+                <Button className="w-full" onClick={handleSubmitPago} disabled={submitLocked || pagoMutation.isPending}>
                   <CreditCard className="h-4 w-4 mr-2" />
-                  {pagoMutation.isPending ? "Registrando..." : "Registrar Pago"}
+                  {(submitLocked || pagoMutation.isPending) ? "Registrando..." : "Registrar Pago"}
                 </Button>
               </CardContent>
             </Card>
@@ -656,8 +705,13 @@ export default function MesDetalle() {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        📅 {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
+                        Pago realizado: {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
                       </p>
+                      {(p as any).fecha_registro && (
+                        <p className="text-[10px] text-muted-foreground/80">
+                          Ingresado al sistema: {new Date((p as any).fecha_registro).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      )}
                       {p.numero_recibo && <p className="text-xs text-muted-foreground">Recibo: {p.numero_recibo}</p>}
                       {p.notas && <p className="text-xs text-muted-foreground italic">{p.notas}</p>}
                     </div>

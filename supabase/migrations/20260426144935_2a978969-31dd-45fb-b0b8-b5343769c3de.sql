@@ -1,0 +1,1 @@
+ALTER TABLE public.pagos DROP COLUMN IF EXISTS fecha_transferencia;

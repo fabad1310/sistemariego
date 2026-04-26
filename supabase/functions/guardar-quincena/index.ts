@@ -36,8 +36,10 @@ serve(async (req) => {
     const { data: mes, error: mesErr } = await supabase
       .from("meses_servicio").select("*").eq("id", mes_servicio_id).single();
     if (mesErr || !mes) throw new Error("Mes de servicio no encontrado");
-    // REMOVED: restriction on editing paid months — now allowed
     if (mes.estado_servicio === "suspendido") throw new Error("No se puede editar un mes suspendido");
+    if (mes.estado_mes === "pagado") {
+      throw new Error("Este mes ya está pagado (cerrado contablemente). No se puede recalcular el total automáticamente.");
+    }
 
     const { error: upsertErr } = await supabase
       .from("quincenas_servicio")
