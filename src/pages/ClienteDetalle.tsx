@@ -447,6 +447,11 @@ export default function ClienteDetalle() {
               <p className="text-sm text-muted-foreground">
                 Seleccione los meses a crear e ingrese tarifas y minutos por quincena.
               </p>
+              {cliente && Number((cliente as any).saldo_a_favor ?? 0) > 0 && (
+                <div className="p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+                  ℹ️ Se aplicarán automáticamente <strong>${Number((cliente as any).saldo_a_favor).toLocaleString("es-AR")}</strong> de saldo a favor a los primeros meses de este plan (orden cronológico).
+                </div>
+              )}
 
               <div>
                 <Label className="text-sm font-medium">📅 Meses a crear</Label>
