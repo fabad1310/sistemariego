@@ -8,10 +8,12 @@ import {
   SidebarMenuItem,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt, LogOut, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
+import { usePWAInstall } from "@/hooks/usePWAInstall";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const navItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
@@ -24,6 +26,8 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, isAdmin, isReadOnly, user } = useAuth();
+  const { install, canInstall, isIOS } = usePWAInstall();
+  const isMobile = useIsMobile();
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   useEffect(() => {
@@ -76,6 +80,26 @@ export function AppSidebar() {
             {isAdmin ? "ADMIN" : "VISITA"}
           </Badge>
         </div>
+        {isMobile && canInstall && (
+          <button
+            onClick={async () => {
+              if (isIOS) {
+                alert(
+                  "📲 Para instalar en iPhone/iPad:\n\n" +
+                    "1. Tocá el ícono de Compartir (cuadrado con flecha ↑) en Safari\n" +
+                    '2. Deslizá y tocá "Agregar a pantalla de inicio"\n' +
+                    '3. Tocá "Agregar"'
+                );
+              } else {
+                await install();
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            <span>Instalar app en mi teléfono</span>
+          </button>
+        )}
         <button
           onClick={() => setDark(!dark)}
           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
