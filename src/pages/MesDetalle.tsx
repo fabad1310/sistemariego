@@ -705,8 +705,13 @@ export default function MesDetalle() {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        📅 {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
+                        Pago realizado: {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
                       </p>
+                      {(p as any).fecha_registro && (
+                        <p className="text-[10px] text-muted-foreground/80">
+                          Ingresado al sistema: {new Date((p as any).fecha_registro).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      )}
                       {p.numero_recibo && <p className="text-xs text-muted-foreground">Recibo: {p.numero_recibo}</p>}
                       {p.notas && <p className="text-xs text-muted-foreground italic">{p.notas}</p>}
                     </div>
