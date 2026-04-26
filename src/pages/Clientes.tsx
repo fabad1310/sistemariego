@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -117,6 +117,11 @@ export default function Clientes() {
     },
     onError: (err: any) => toast.error(err.message || "Error al actualizar valores"),
   });
+
+  // Scroll al top al cambiar búsqueda o filtro (mejora la percepción top-down)
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [search, filtroEstado]);
 
   const filtered = clientes?.filter((c) => {
     const matchSearch =
@@ -256,7 +261,7 @@ export default function Clientes() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <Card key={i} className="animate-pulse"><CardContent className="p-6"><div className="h-16 bg-muted rounded" /></CardContent></Card>
           ))}
         </div>
@@ -265,7 +270,7 @@ export default function Clientes() {
           {filtered?.map((c, i) => {
             const isSuspendido = clienteIdsSuspendidos.has(c.id);
             return (
-              <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+              <motion.div key={c.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i < 20 ? 0 : (i - 20) * 0.03 }}>
                 <Card className="cursor-pointer hover:shadow-md hover:border-primary/30 transition-all" onClick={() => navigate(`/clientes/${c.id}`)}>
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
