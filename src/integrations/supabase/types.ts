@@ -316,7 +316,6 @@ export type Database = {
           cliente_id: string
           fecha_pago_real: string
           fecha_registro: string
-          fecha_transferencia: string | null
           id: string
           mes_servicio_id: string
           metodo_pago: string
@@ -328,7 +327,6 @@ export type Database = {
           cliente_id: string
           fecha_pago_real?: string
           fecha_registro?: string
-          fecha_transferencia?: string | null
           id?: string
           mes_servicio_id: string
           metodo_pago: string
@@ -340,7 +338,6 @@ export type Database = {
           cliente_id?: string
           fecha_pago_real?: string
           fecha_registro?: string
-          fecha_transferencia?: string | null
           id?: string
           mes_servicio_id?: string
           metodo_pago?: string
