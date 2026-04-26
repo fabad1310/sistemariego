@@ -143,13 +143,22 @@ serve(async (req) => {
       .from("quincenas_servicio").insert(quincenasInsert);
     if (quincenasError) throw quincenasError;
 
-    // *** FIX SALDO A FAVOR — aplicar saldo acumulado a los nuevos meses ***
+    // *** FIX SALDO A FAVOR — aplicar saldo acumulado a los nuevos meses (orden cronológico) ***
     let saldo_a_favor_aplicado = 0;
     let saldoRestante = saldoAFavor;
     const today = new Date().toISOString().split("T")[0];
 
+    console.log(
+      `[crear-plan-anual] Saldo a favor antes: $${saldoAFavor}. ` +
+      `Meses creados: ${mesesCreados?.length ?? 0}. Cliente: ${cliente_id}, año ${anio}.`
+    );
+
     if (saldoAFavor > 0 && mesesCreados && mesesCreados.length > 0) {
-      const mesesOrdenados = [...mesesCreados].sort((a, b) => a.mes - b.mes);
+      // Orden cronológico estricto: aplicar primero al mes más antiguo
+      const mesesOrdenados = [...mesesCreados].sort((a, b) => {
+        if (a.anio !== b.anio) return a.anio - b.anio;
+        return a.mes - b.mes;
+      });
 
       for (const mesNuevo of mesesOrdenados) {
         if (saldoRestante <= 0) break;
@@ -159,7 +168,7 @@ serve(async (req) => {
 
         const applyAmount = Math.round(Math.min(saldoRestante, mesSaldo) * 100) / 100;
         const nuevoTotalPagado = Math.round((Number(mesNuevo.total_pagado) + applyAmount) * 100) / 100;
-        const nuevoSaldo = Math.round(Math.max(0, mesSaldo - applyAmount) * 100) / 100;
+        const nuevoSaldo = Math.max(0, Math.round((mesSaldo - applyAmount) * 100) / 100);
         const nuevoEstado = nuevoSaldo <= 0 ? "pagado" : "pendiente";
 
         const { error: pagoErr } = await supabase.from("pagos").insert({
@@ -168,7 +177,6 @@ serve(async (req) => {
           monto: applyAmount,
           metodo_pago: "efectivo",
           numero_recibo: null,
-          fecha_transferencia: null,
           notas: `Saldo a favor acumulado aplicado automáticamente al crear plan ${anio}`,
           fecha_pago_real: today,
         });
@@ -184,20 +192,22 @@ serve(async (req) => {
           .eq("id", mesNuevo.id);
         if (updateMesErr) throw new Error("Error al actualizar mes con saldo_a_favor: " + updateMesErr.message);
 
-        saldo_a_favor_aplicado += applyAmount;
-        saldoRestante = Math.round((saldoRestante - applyAmount) * 100) / 100;
+        saldo_a_favor_aplicado = Math.round((saldo_a_favor_aplicado + applyAmount) * 100) / 100;
+        saldoRestante = Math.max(0, Math.round((saldoRestante - applyAmount) * 100) / 100);
       }
 
+      const saldoFinal = Math.max(0, Math.round(saldoRestante * 100) / 100);
       const { error: updateClienteErr } = await supabase
         .from("clientes")
-        .update({ saldo_a_favor: saldoRestante })
+        .update({ saldo_a_favor: saldoFinal })
         .eq("id", cliente_id);
       if (updateClienteErr) throw new Error("Error al actualizar saldo_a_favor del cliente: " + updateClienteErr.message);
 
       console.log(
-        `[crear-plan-anual] Aplicados $${saldo_a_favor_aplicado} de saldo_a_favor al plan ${anio} del cliente ${cliente_id}. ` +
-        `Saldo restante: $${saldoRestante}`
+        `[crear-plan-anual] Aplicados $${saldo_a_favor_aplicado} de saldo_a_favor al plan ${anio}. ` +
+        `Saldo restante: $${saldoFinal}`
       );
+      saldoRestante = saldoFinal;
     }
     // *** FIN FIX SALDO A FAVOR ***
 
