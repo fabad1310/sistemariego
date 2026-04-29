@@ -8,7 +8,7 @@ import {
   SidebarMenuItem,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt, LogOut, Download } from "lucide-react";
+import { LayoutDashboard, Users, FileBarChart, Droplets, Sun, Moon, Receipt, LogOut, Download, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ const navItems = [
   { title: "Clientes", icon: Users, path: "/clientes" },
   { title: "Gastos", icon: Receipt, path: "/gastos" },
   { title: "Reportes", icon: FileBarChart, path: "/reportes" },
+  { title: "Configuración", icon: Settings, path: "/configuracion", adminOnly: true },
 ];
 
 export function AppSidebar() {
@@ -52,7 +53,7 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarMenu>
-          {navItems.map((item) => {
+          {navItems.filter((i) => !i.adminOnly || isAdmin).map((item) => {
             const isActive =
               item.path === "/"
                 ? location.pathname === "/"
