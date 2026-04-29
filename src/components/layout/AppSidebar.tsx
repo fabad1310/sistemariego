@@ -26,7 +26,7 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, isAdmin, isReadOnly, user } = useAuth();
-  const { install, canInstall, isIOS } = usePWAInstall();
+  const { install, canInstall, isIOS, isAndroid, hasNativePrompt } = usePWAInstall();
   const isMobile = useIsMobile();
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
@@ -90,8 +90,16 @@ export function AppSidebar() {
                     '2. Deslizá y tocá "Agregar a pantalla de inicio"\n' +
                     '3. Tocá "Agregar"'
                 );
-              } else {
+              } else if (hasNativePrompt) {
                 await install();
+              } else if (isAndroid) {
+                alert(
+                  "📲 Para instalar en Android:\n\n" +
+                    "1. Abrí el menú del navegador (⋮ arriba a la derecha)\n" +
+                    '2. Tocá "Instalar app" o "Agregar a pantalla de inicio"\n' +
+                    '3. Confirmá tocando "Instalar"\n\n' +
+                    "Si no ves la opción, asegurate de estar usando Chrome y que la página esté abierta directamente (no dentro de otra app)."
+                );
               }
             }}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"

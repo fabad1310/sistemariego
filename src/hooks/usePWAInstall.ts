@@ -9,12 +9,22 @@ export function usePWAInstall() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const ua = navigator.userAgent;
+    const ios = /iphone|ipad|ipod/i.test(ua);
+    const android = /android/i.test(ua);
     setIsIOS(ios);
+    setIsAndroid(android);
 
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    // Detectar si ya está instalada
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      // iOS Safari
+      (window.navigator as any).standalone === true;
+
+    if (standalone) {
       setIsInstalled(true);
       return;
     }
@@ -25,7 +35,10 @@ export function usePWAInstall() {
     };
 
     window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => setIsInstalled(true));
+    window.addEventListener('appinstalled', () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    });
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
@@ -43,7 +56,11 @@ export function usePWAInstall() {
     return outcome === 'accepted';
   };
 
-  const canInstall = !isInstalled && (!!installPrompt || isIOS);
+  // Mostrar el botón en cualquier mobile que no esté ya instalado.
+  // Si no hay prompt nativo aún, mostraremos instrucciones manuales.
+  const isMobileUA = isIOS || isAndroid;
+  const canInstall = !isInstalled && (!!installPrompt || isMobileUA);
+  const hasNativePrompt = !!installPrompt;
 
-  return { install, canInstall, isInstalled, isIOS };
+  return { install, canInstall, isInstalled, isIOS, isAndroid, hasNativePrompt };
 }
