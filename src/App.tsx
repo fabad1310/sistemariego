@@ -11,6 +11,7 @@ import ClienteDetalle from "./pages/ClienteDetalle";
 import MesDetalle from "./pages/MesDetalle";
 import Reportes from "./pages/Reportes";
 import Gastos from "./pages/Gastos";
+import Configuracion from "./pages/Configuracion";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
@@ -41,6 +42,7 @@ function ProtectedRoutes() {
         <Route path="/clientes/:id/mes/:mesId" element={<MesDetalle />} />
         <Route path="/gastos" element={<Gastos />} />
         <Route path="/reportes" element={<Reportes />} />
+        <Route path="/configuracion" element={<Configuracion />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
