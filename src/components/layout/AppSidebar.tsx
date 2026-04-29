@@ -53,7 +53,7 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarMenu>
-          {navItems.map((item) => {
+          {navItems.filter((i) => !i.adminOnly || isAdmin).map((item) => {
             const isActive =
               item.path === "/"
                 ? location.pathname === "/"
