@@ -23,12 +23,11 @@ const TABLAS = [
 
 function toCSV(rows: any[]): string {
   if (!rows || rows.length === 0) return "";
-  const headers = Array.from(
-    rows.reduce((set: Set<string>, r) => {
-      Object.keys(r ?? {}).forEach((k) => set.add(k));
-      return set;
-    }, new Set<string>())
-  );
+  const headerSet = new Set<string>();
+  for (const r of rows) {
+    Object.keys(r ?? {}).forEach((k) => headerSet.add(k));
+  }
+  const headers: string[] = Array.from(headerSet);
   const escape = (v: any) => {
     if (v === null || v === undefined) return "";
     if (typeof v === "object") v = JSON.stringify(v);
