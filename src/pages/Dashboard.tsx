@@ -283,7 +283,7 @@ export default function Dashboard() {
               </DialogHeader>
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los clientes.
+                  Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los regantes.
                 </p>
                 <div>
                   <Label>Monto Administrativo ($)</Label>
