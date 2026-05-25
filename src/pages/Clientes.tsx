@@ -138,8 +138,8 @@ export default function Clientes() {
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">Clientes</h1>
-          <p className="text-sm text-muted-foreground">👥 Gestión de clientes del sistema de riego</p>
+          <h1 className="text-2xl font-bold">Regantes</h1>
+          <p className="text-sm text-muted-foreground">👥 Gestión de regantes del sistema de riego</p>
         </div>
         <div className="flex gap-2">
           {isAdmin && (
