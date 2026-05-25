@@ -17,6 +17,7 @@ export type Database = {
       clientes: {
         Row: {
           apellido: string
+          codigo_regante: string
           created_at: string
           dni: string
           email: string | null
@@ -32,6 +33,7 @@ export type Database = {
         }
         Insert: {
           apellido: string
+          codigo_regante: string
           created_at?: string
           dni: string
           email?: string | null
@@ -47,6 +49,7 @@ export type Database = {
         }
         Update: {
           apellido?: string
+          codigo_regante?: string
           created_at?: string
           dni?: string
           email?: string | null
