@@ -343,6 +343,23 @@ export default function ClienteDetalle() {
                 {(cliente as any).numero_ramal && (
                   <span className="ml-2">🔢 Ramal: {(cliente as any).numero_ramal}</span>
                 )}
+                {isAdmin && (cliente as any).codigo_regante && (
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    🔑 Código:
+                    <code className="px-1.5 py-0.5 rounded bg-muted text-foreground font-mono text-xs">{(cliente as any).codigo_regante}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText((cliente as any).codigo_regante);
+                        toast.success("Código copiado al portapapeles");
+                      }}
+                      className="text-xs underline hover:no-underline"
+                      title="Copiar código"
+                    >
+                      copiar
+                    </button>
+                  </span>
+                )}
               </>
             )}
           </div>
