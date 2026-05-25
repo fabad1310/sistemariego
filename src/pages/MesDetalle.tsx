@@ -340,6 +340,71 @@ export default function MesDetalle() {
     navigate(`/clientes/${clienteId}`, { state: selectedYear ? { selectedYear } : undefined });
   }, [navigate, clienteId, location.state]);
 
+  // === Editar Pago ===
+  const [pagoEditando, setPagoEditando] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({
+    monto: "",
+    fecha_pago_real: "",
+    metodo_pago: "efectivo" as "efectivo" | "transferencia",
+    numero_recibo: "",
+    notas: "",
+  });
+
+  const abrirEditarPago = (p: any) => {
+    setPagoEditando(p);
+    setEditForm({
+      monto: String(p.monto ?? ""),
+      fecha_pago_real: p.fecha_pago_real ?? localDateString(),
+      metodo_pago: (p.metodo_pago === "transferencia" ? "transferencia" : "efectivo"),
+      numero_recibo: p.numero_recibo ?? "",
+      notas: p.notas ?? "",
+    });
+  };
+
+  const editarPagoMutation = useMutation({
+    mutationFn: async () => {
+      const montoNum = Number(editForm.monto);
+      if (!Number.isFinite(montoNum) || montoNum <= 0) throw new Error("Monto inválido");
+      if (!editForm.fecha_pago_real) throw new Error("Fecha requerida");
+      if (editForm.fecha_pago_real > localDateString()) throw new Error("La fecha no puede ser futura");
+      if (editForm.metodo_pago === "efectivo" && !editForm.numero_recibo.trim()) {
+        throw new Error("Número de recibo requerido para efectivo");
+      }
+      const res = await supabase.functions.invoke("editar-pago", {
+        body: {
+          pago_id: pagoEditando.id,
+          nuevo_monto: montoNum,
+          nueva_fecha_pago_real: editForm.fecha_pago_real,
+          nuevo_metodo_pago: editForm.metodo_pago,
+          nuevo_numero_recibo: editForm.numero_recibo || null,
+          nuevas_notas: editForm.notas || null,
+        },
+      });
+      if (res.error) throw new Error(res.error.message || "Error al editar");
+      if ((res.data as any)?.error) throw new Error((res.data as any).error);
+      return res.data as any;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio", clienteId] });
+      queryClient.invalidateQueries({ queryKey: ["cliente", clienteId] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
+      queryClient.invalidateQueries({ queryKey: ["pagos"] });
+      setPagoEditando(null);
+      toast.success("Pago editado y recalculado correctamente ✅");
+      if (data?.excedente_reaplicado > 0) {
+        toast.info(
+          `$${Number(data.excedente_reaplicado).toLocaleString("es-AR")} re-aplicados a meses siguientes`
+        );
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Error al editar el pago");
+    },
+  });
+
+
   return (
     <div>
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
@@ -616,7 +681,7 @@ export default function MesDetalle() {
                   <Label>📅 Fecha real del pago</Label>
                   <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={localDateString()} />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Ingresá la fecha en que el cliente realizó el pago. Puede diferir de la fecha de ingreso al sistema.
+                    Ingresá la fecha en que el regante realizó el pago. Puede diferir de la fecha de ingreso al sistema.
                   </p>
                 </div>
                 <div>
@@ -691,18 +756,37 @@ export default function MesDetalle() {
           <CardContent>
             {pagos && pagos.length > 0 ? (
               <div className="space-y-3">
-                {pagos.map((p, i) => (
+                {pagos.map((p, i) => {
+                  const esExcedente = typeof p.notas === "string" && p.notas.startsWith("Excedente aplicado desde");
+                  return (
                   <motion.div key={p.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                     className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">
                       <DollarSign className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">${Number(p.monto).toLocaleString()}</span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">
+                            {p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}
+                          </Badge>
+                          {isAdmin && !esExcedente && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="Editar pago"
+                              onClick={() => abrirEditarPago(p)}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {esExcedente && (
+                            <span className="text-[10px] text-muted-foreground italic">Excedente</span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Pago realizado: {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
@@ -716,7 +800,8 @@ export default function MesDetalle() {
                       {p.notas && <p className="text-xs text-muted-foreground italic">{p.notas}</p>}
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">No hay pagos registrados para este mes</p>
@@ -724,6 +809,79 @@ export default function MesDetalle() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal: Editar Pago */}
+      <Dialog open={!!pagoEditando} onOpenChange={(open) => { if (!open) setPagoEditando(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>✏️ Editar Pago</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-xs">
+              ⚠️ Editá este pago con cuidado. Si el monto cambia, los excedentes aplicados a meses siguientes se recalcularán automáticamente.
+            </div>
+            <div>
+              <Label>Monto</Label>
+              <Input
+                type="number" min="0" step="0.01"
+                value={editForm.monto}
+                onChange={(e) => setEditForm((f) => ({ ...f, monto: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>📅 Fecha real del pago</Label>
+              <Input
+                type="date"
+                value={editForm.fecha_pago_real}
+                max={localDateString()}
+                onChange={(e) => setEditForm((f) => ({ ...f, fecha_pago_real: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Método de Pago</Label>
+              <Select
+                value={editForm.metodo_pago}
+                onValueChange={(v: "efectivo" | "transferencia") =>
+                  setEditForm((f) => ({ ...f, metodo_pago: v }))
+                }
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="efectivo">💵 Efectivo</SelectItem>
+                  <SelectItem value="transferencia">🏦 Transferencia</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editForm.metodo_pago === "efectivo" && (
+              <div>
+                <Label>Número de Recibo</Label>
+                <Input
+                  placeholder="Ej: 00123"
+                  value={editForm.numero_recibo}
+                  onChange={(e) => setEditForm((f) => ({ ...f, numero_recibo: e.target.value }))}
+                />
+              </div>
+            )}
+            <div>
+              <Label>Notas (opcional)</Label>
+              <Textarea
+                placeholder="Observaciones..."
+                value={editForm.notas}
+                onChange={(e) => setEditForm((f) => ({ ...f, notas: e.target.value }))}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setPagoEditando(null)} disabled={editarPagoMutation.isPending}>
+                Cancelar
+              </Button>
+              <Button onClick={() => editarPagoMutation.mutate()} disabled={editarPagoMutation.isPending}>
+                {editarPagoMutation.isPending ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

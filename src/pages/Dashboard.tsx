@@ -283,7 +283,7 @@ export default function Dashboard() {
               </DialogHeader>
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los clientes.
+                  Este monto se suma al total de cada mes pendiente de pago. Al cambiar el valor, se actualizarán <strong>todos los meses pendientes</strong> de todos los regantes.
                 </p>
                 <div>
                   <Label>Monto Administrativo ($)</Label>
@@ -333,7 +333,7 @@ export default function Dashboard() {
         <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes Activos</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Regantes Activos</CardTitle>
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent><div className="text-2xl font-bold">🌱 {clientesActivos}</div></CardContent>
@@ -343,7 +343,7 @@ export default function Dashboard() {
         <motion.div custom={1} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes con Deuda</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Regantes con Deuda</CardTitle>
               <AlertTriangle className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent><div className="text-2xl font-bold">⚠️ {clientesConDeuda.length}</div></CardContent>
@@ -353,7 +353,7 @@ export default function Dashboard() {
         <motion.div custom={2} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deuda Clientes</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deuda Regantes</CardTitle>
               <Banknote className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
@@ -446,7 +446,7 @@ export default function Dashboard() {
       {clientesConDeuda.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente (hasta {MONTHS[corteMes - 1]} {corteAnio})</CardTitle>
+            <CardTitle className="text-base">⚠️ Regantes con Deuda Pendiente (hasta {MONTHS[corteMes - 1]} {corteAnio})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">

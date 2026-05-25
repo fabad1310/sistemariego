@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ReganteSesionProvider } from "@/contexts/ReganteSesionContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Clientes from "./pages/Clientes";
@@ -13,6 +14,7 @@ import Reportes from "./pages/Reportes";
 import Gastos from "./pages/Gastos";
 import Configuracion from "./pages/Configuracion";
 import Login from "./pages/Login";
+import MiCuenta from "./pages/MiCuenta";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -63,10 +65,13 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginRoute />} />
-            <Route path="/*" element={<ProtectedRoutes />} />
-          </Routes>
+          <ReganteSesionProvider>
+            <Routes>
+              <Route path="/login" element={<LoginRoute />} />
+              <Route path="/mi-cuenta" element={<MiCuenta />} />
+              <Route path="/*" element={<ProtectedRoutes />} />
+            </Routes>
+          </ReganteSesionProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

@@ -86,12 +86,12 @@ export default function Clientes() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente creado exitosamente 🌱");
+      toast.success("Regante creado exitosamente 🌱");
       form.reset();
       setOpen(false);
     },
     onError: () => {
-      toast.error("Error al crear cliente");
+      toast.error("Error al crear regante");
     },
   });
 
@@ -138,8 +138,8 @@ export default function Clientes() {
       <div className="flex items-center gap-3 mb-6">
         <SidebarTrigger />
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">Clientes</h1>
-          <p className="text-sm text-muted-foreground">👥 Gestión de clientes del sistema de riego</p>
+          <h1 className="text-2xl font-bold">Regantes</h1>
+          <p className="text-sm text-muted-foreground">👥 Gestión de regantes del sistema de riego</p>
         </div>
         <div className="flex gap-2">
           {isAdmin && (
@@ -155,7 +155,7 @@ export default function Clientes() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-sm">
-                  ⚠️ Esta acción actualizará todos los meses <strong>pendientes</strong> de todos los clientes activos del año actual. Los meses ya pagados <strong>no se modificarán</strong>.
+                  ⚠️ Esta acción actualizará todos los meses <strong>pendientes</strong> de todos los regantes activos del año actual. Los meses ya pagados <strong>no se modificarán</strong>.
                 </div>
                 <div>
                   <Label>Nuevo Valor/Hora Precaria ($)</Label>
@@ -168,14 +168,14 @@ export default function Clientes() {
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button className="w-full" disabled={!globalForm.valor_hora_discriminada || globalUpdateMutation.isPending}>
-                      {globalUpdateMutation.isPending ? "Actualizando..." : "Aplicar a Todos los Clientes Activos"}
+                      {globalUpdateMutation.isPending ? "Actualizando..." : "Aplicar a Todos los Regantes Activos"}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>¿Confirmar actualización global?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Esta acción actualizará los valores de hora para todos los clientes activos del año actual.
+                        Esta acción actualizará los valores de hora para todos los regantes activos del año actual.
                         Solo se recalcularán meses con estado pendiente. Los meses ya pagados NO se modificarán.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -196,12 +196,12 @@ export default function Clientes() {
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
-                <Plus className="h-4 w-4 mr-2" /> Nuevo Cliente
+                <Plus className="h-4 w-4 mr-2" /> Nuevo Regante
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>🌱 Nuevo Cliente</DialogTitle>
+                <DialogTitle>🌱 Nuevo Regante</DialogTitle>
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
@@ -234,7 +234,7 @@ export default function Clientes() {
                     <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input placeholder="Nombre del regante" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-                    {createMutation.isPending ? "Creando..." : "Crear Cliente"}
+                    {createMutation.isPending ? "Creando..." : "Crear Regante"}
                   </Button>
                 </form>
               </Form>
@@ -311,7 +311,7 @@ export default function Clientes() {
             );
           })}
           {filtered?.length === 0 && (
-            <div className="col-span-full text-center py-12 text-muted-foreground">No se encontraron clientes</div>
+            <div className="col-span-full text-center py-12 text-muted-foreground">No se encontraron regantes</div>
           )}
         </div>
       )}
