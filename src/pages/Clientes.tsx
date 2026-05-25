@@ -311,7 +311,7 @@ export default function Clientes() {
             );
           })}
           {filtered?.length === 0 && (
-            <div className="col-span-full text-center py-12 text-muted-foreground">No se encontraron clientes</div>
+            <div className="col-span-full text-center py-12 text-muted-foreground">No se encontraron regantes</div>
           )}
         </div>
       )}
