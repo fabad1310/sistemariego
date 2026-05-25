@@ -234,7 +234,7 @@ export default function Clientes() {
                     <FormItem><FormLabel>Nombre del Regante</FormLabel><FormControl><Input placeholder="Nombre del regante" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-                    {createMutation.isPending ? "Creando..." : "Crear Cliente"}
+                    {createMutation.isPending ? "Creando..." : "Crear Regante"}
                   </Button>
                 </form>
               </Form>
