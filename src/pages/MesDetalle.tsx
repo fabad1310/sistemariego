@@ -340,6 +340,71 @@ export default function MesDetalle() {
     navigate(`/clientes/${clienteId}`, { state: selectedYear ? { selectedYear } : undefined });
   }, [navigate, clienteId, location.state]);
 
+  // === Editar Pago ===
+  const [pagoEditando, setPagoEditando] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({
+    monto: "",
+    fecha_pago_real: "",
+    metodo_pago: "efectivo" as "efectivo" | "transferencia",
+    numero_recibo: "",
+    notas: "",
+  });
+
+  const abrirEditarPago = (p: any) => {
+    setPagoEditando(p);
+    setEditForm({
+      monto: String(p.monto ?? ""),
+      fecha_pago_real: p.fecha_pago_real ?? localDateString(),
+      metodo_pago: (p.metodo_pago === "transferencia" ? "transferencia" : "efectivo"),
+      numero_recibo: p.numero_recibo ?? "",
+      notas: p.notas ?? "",
+    });
+  };
+
+  const editarPagoMutation = useMutation({
+    mutationFn: async () => {
+      const montoNum = Number(editForm.monto);
+      if (!Number.isFinite(montoNum) || montoNum <= 0) throw new Error("Monto inválido");
+      if (!editForm.fecha_pago_real) throw new Error("Fecha requerida");
+      if (editForm.fecha_pago_real > localDateString()) throw new Error("La fecha no puede ser futura");
+      if (editForm.metodo_pago === "efectivo" && !editForm.numero_recibo.trim()) {
+        throw new Error("Número de recibo requerido para efectivo");
+      }
+      const res = await supabase.functions.invoke("editar-pago", {
+        body: {
+          pago_id: pagoEditando.id,
+          nuevo_monto: montoNum,
+          nueva_fecha_pago_real: editForm.fecha_pago_real,
+          nuevo_metodo_pago: editForm.metodo_pago,
+          nuevo_numero_recibo: editForm.numero_recibo || null,
+          nuevas_notas: editForm.notas || null,
+        },
+      });
+      if (res.error) throw new Error(res.error.message || "Error al editar");
+      if ((res.data as any)?.error) throw new Error((res.data as any).error);
+      return res.data as any;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["pagos", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["mes_servicio", mesId] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio", clienteId] });
+      queryClient.invalidateQueries({ queryKey: ["cliente", clienteId] });
+      queryClient.invalidateQueries({ queryKey: ["meses_servicio"] });
+      queryClient.invalidateQueries({ queryKey: ["pagos"] });
+      setPagoEditando(null);
+      toast.success("Pago editado y recalculado correctamente ✅");
+      if (data?.excedente_reaplicado > 0) {
+        toast.info(
+          `$${Number(data.excedente_reaplicado).toLocaleString("es-AR")} re-aplicados a meses siguientes`
+        );
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Error al editar el pago");
+    },
+  });
+
+
   return (
     <div>
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
