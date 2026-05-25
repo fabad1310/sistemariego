@@ -155,7 +155,7 @@ export default function Clientes() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-sm">
-                  ⚠️ Esta acción actualizará todos los meses <strong>pendientes</strong> de todos los clientes activos del año actual. Los meses ya pagados <strong>no se modificarán</strong>.
+                  ⚠️ Esta acción actualizará todos los meses <strong>pendientes</strong> de todos los regantes activos del año actual. Los meses ya pagados <strong>no se modificarán</strong>.
                 </div>
                 <div>
                   <Label>Nuevo Valor/Hora Precaria ($)</Label>
