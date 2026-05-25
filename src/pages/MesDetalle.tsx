@@ -616,7 +616,7 @@ export default function MesDetalle() {
                   <Label>📅 Fecha real del pago</Label>
                   <Input type="date" value={pagoForm.fecha_pago_real} onChange={(e) => setPagoForm((p) => ({ ...p, fecha_pago_real: e.target.value }))} max={localDateString()} />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Ingresá la fecha en que el cliente realizó el pago. Puede diferir de la fecha de ingreso al sistema.
+                    Ingresá la fecha en que el regante realizó el pago. Puede diferir de la fecha de ingreso al sistema.
                   </p>
                 </div>
                 <div>
