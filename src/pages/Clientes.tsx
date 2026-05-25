@@ -168,7 +168,7 @@ export default function Clientes() {
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button className="w-full" disabled={!globalForm.valor_hora_discriminada || globalUpdateMutation.isPending}>
-                      {globalUpdateMutation.isPending ? "Actualizando..." : "Aplicar a Todos los Clientes Activos"}
+                      {globalUpdateMutation.isPending ? "Actualizando..." : "Aplicar a Todos los Regantes Activos"}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
