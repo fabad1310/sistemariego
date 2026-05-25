@@ -196,12 +196,12 @@ export default function Clientes() {
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
-                <Plus className="h-4 w-4 mr-2" /> Nuevo Cliente
+                <Plus className="h-4 w-4 mr-2" /> Nuevo Regante
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>🌱 Nuevo Cliente</DialogTitle>
+                <DialogTitle>🌱 Nuevo Regante</DialogTitle>
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
