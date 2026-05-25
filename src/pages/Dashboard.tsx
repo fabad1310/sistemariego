@@ -353,7 +353,7 @@ export default function Dashboard() {
         <motion.div custom={2} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deuda Clientes</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deuda Regantes</CardTitle>
               <Banknote className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
