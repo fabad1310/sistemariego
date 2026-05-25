@@ -349,7 +349,7 @@ export default function ClienteDetalle() {
         </div>
         {isAdmin && (
           <Button variant="outline" size="sm" onClick={handleOpenEditCliente}>
-            <Pencil className="h-4 w-4 mr-2" /> Editar Cliente
+            <Pencil className="h-4 w-4 mr-2" /> Editar Regante
           </Button>
         )}
       </div>
@@ -357,7 +357,7 @@ export default function ClienteDetalle() {
       {/* Edit Client Dialog */}
       <Dialog open={editClienteOpen} onOpenChange={setEditClienteOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>✏️ Editar Cliente</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>✏️ Editar Regante</DialogTitle></DialogHeader>
           <Form {...editClienteForm}>
             <form onSubmit={editClienteForm.handleSubmit((v) => editClienteMutation.mutate(v))} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
