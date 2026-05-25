@@ -446,7 +446,7 @@ export default function Dashboard() {
       {clientesConDeuda.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">⚠️ Clientes con Deuda Pendiente (hasta {MONTHS[corteMes - 1]} {corteAnio})</CardTitle>
+            <CardTitle className="text-base">⚠️ Regantes con Deuda Pendiente (hasta {MONTHS[corteMes - 1]} {corteAnio})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
