@@ -175,7 +175,7 @@ export default function Clientes() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>¿Confirmar actualización global?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Esta acción actualizará los valores de hora para todos los clientes activos del año actual.
+                        Esta acción actualizará los valores de hora para todos los regantes activos del año actual.
                         Solo se recalcularán meses con estado pendiente. Los meses ya pagados NO se modificarán.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
