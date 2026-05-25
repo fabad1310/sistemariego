@@ -333,7 +333,7 @@ export default function Dashboard() {
         <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariant}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Clientes Activos</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Regantes Activos</CardTitle>
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent><div className="text-2xl font-bold">🌱 {clientesActivos}</div></CardContent>
