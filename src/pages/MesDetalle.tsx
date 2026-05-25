@@ -756,18 +756,37 @@ export default function MesDetalle() {
           <CardContent>
             {pagos && pagos.length > 0 ? (
               <div className="space-y-3">
-                {pagos.map((p, i) => (
+                {pagos.map((p, i) => {
+                  const esExcedente = typeof p.notas === "string" && p.notas.startsWith("Excedente aplicado desde");
+                  return (
                   <motion.div key={p.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                     className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">
                       <DollarSign className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">${Number(p.monto).toLocaleString()}</span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">
+                            {p.metodo_pago === "efectivo" ? "💵 Efectivo" : "🏦 Transfer."}
+                          </Badge>
+                          {isAdmin && !esExcedente && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="Editar pago"
+                              onClick={() => abrirEditarPago(p)}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {esExcedente && (
+                            <span className="text-[10px] text-muted-foreground italic">Excedente</span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Pago realizado: {new Date((p as any).fecha_pago_real + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}
@@ -781,7 +800,8 @@ export default function MesDetalle() {
                       {p.notas && <p className="text-xs text-muted-foreground italic">{p.notas}</p>}
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">No hay pagos registrados para este mes</p>
@@ -789,6 +809,79 @@ export default function MesDetalle() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal: Editar Pago */}
+      <Dialog open={!!pagoEditando} onOpenChange={(open) => { if (!open) setPagoEditando(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>✏️ Editar Pago</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 text-xs">
+              ⚠️ Editá este pago con cuidado. Si el monto cambia, los excedentes aplicados a meses siguientes se recalcularán automáticamente.
+            </div>
+            <div>
+              <Label>Monto</Label>
+              <Input
+                type="number" min="0" step="0.01"
+                value={editForm.monto}
+                onChange={(e) => setEditForm((f) => ({ ...f, monto: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>📅 Fecha real del pago</Label>
+              <Input
+                type="date"
+                value={editForm.fecha_pago_real}
+                max={localDateString()}
+                onChange={(e) => setEditForm((f) => ({ ...f, fecha_pago_real: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Método de Pago</Label>
+              <Select
+                value={editForm.metodo_pago}
+                onValueChange={(v: "efectivo" | "transferencia") =>
+                  setEditForm((f) => ({ ...f, metodo_pago: v }))
+                }
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="efectivo">💵 Efectivo</SelectItem>
+                  <SelectItem value="transferencia">🏦 Transferencia</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editForm.metodo_pago === "efectivo" && (
+              <div>
+                <Label>Número de Recibo</Label>
+                <Input
+                  placeholder="Ej: 00123"
+                  value={editForm.numero_recibo}
+                  onChange={(e) => setEditForm((f) => ({ ...f, numero_recibo: e.target.value }))}
+                />
+              </div>
+            )}
+            <div>
+              <Label>Notas (opcional)</Label>
+              <Textarea
+                placeholder="Observaciones..."
+                value={editForm.notas}
+                onChange={(e) => setEditForm((f) => ({ ...f, notas: e.target.value }))}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setPagoEditando(null)} disabled={editarPagoMutation.isPending}>
+                Cancelar
+              </Button>
+              <Button onClick={() => editarPagoMutation.mutate()} disabled={editarPagoMutation.isPending}>
+                {editarPagoMutation.isPending ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
