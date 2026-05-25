@@ -116,7 +116,7 @@ export default function ClienteDetalle() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cliente", id] });
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente actualizado ✅");
+      toast.success("Regante actualizado ✅");
       setEditClienteOpen(false);
     },
     onError: (err: any) => toast.error(err.message || "Error al actualizar"),
