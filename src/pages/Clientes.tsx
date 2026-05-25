@@ -86,12 +86,12 @@ export default function Clientes() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente creado exitosamente 🌱");
+      toast.success("Regante creado exitosamente 🌱");
       form.reset();
       setOpen(false);
     },
     onError: () => {
-      toast.error("Error al crear cliente");
+      toast.error("Error al crear regante");
     },
   });
 
