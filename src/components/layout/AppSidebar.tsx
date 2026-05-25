@@ -17,7 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 const navItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { title: "Clientes", icon: Users, path: "/clientes" },
+  { title: "Regantes", icon: Users, path: "/clientes" },
   { title: "Gastos", icon: Receipt, path: "/gastos" },
   { title: "Reportes", icon: FileBarChart, path: "/reportes" },
   { title: "Configuración", icon: Settings, path: "/configuracion", adminOnly: true },
